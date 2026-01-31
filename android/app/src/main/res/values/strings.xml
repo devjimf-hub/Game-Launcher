@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Accessibility Service - Play Store compliant descriptions -->
+    <string name="accessibility_service_description">
+        Arcade Launcher uses this service to protect your apps with a PIN lock.
+
+        When enabled, this service:
+        • Detects when protected apps are opened
+        • Displays a lock screen before allowing access
+        • Prevents unauthorized access to your private apps
+
+        This service does NOT:
+        • Collect or transmit any personal data
+        • Read the content of other apps
+        • Access your passwords or sensitive information
+
+        You can disable this service at any time in Settings > Accessibility.
+    </string>
+
+    <string name="accessibility_service_summary">Protects apps with PIN lock</string>
+
+    <!-- App name -->
+    <string name="app_name">Arcade Launcher</string>
+
+    <!-- Lock screen strings -->
+    <string name="lock_title">App Locked</string>
+    <string name="lock_enter_pin">Enter PIN to unlock</string>
+    <string name="lock_wrong_pin">Wrong PIN</string>
+    <string name="lock_too_many_attempts">Too many attempts. Try again in %d seconds</string>
+    <string name="lock_unlocked">Unlocked</string>
+    <string name="lock_cancel">Cancel</string>
+
+    <!-- Biometric strings -->
+    <string name="biometric_title">Unlock App</string>
+    <string name="biometric_subtitle">Use your fingerprint to unlock</string>
+    <string name="biometric_use_pin">Use PIN</string>
+    <string name="biometric_not_recognized">Biometric not recognized</string>
+
+    <!-- Notification strings -->
+    <string name="notification_title">App Lock Active</string>
+    <string name="notification_text">Your apps are protected</string>
+    <string name="notification_text_count">%d apps protected</string>
+</resources>

@@ -1,0 +1,38 @@
+name: arcade_launcher
+description: "A premium gaming and arcade launcher."
+publish_to: 'none'
+version: 0.1.0
+
+environment:
+  sdk: ^3.0.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  shared_preferences: ^2.3.2
+  flutter_secure_storage: ^9.2.2
+  pinput: ^5.0.0
+  permission_handler: ^11.3.1
+  flutter_app_lock: ^4.3.0
+  path_provider: ^2.1.4
+  image_picker: ^1.1.2
+  google_mobile_ads: ^5.1.0
+  local_auth: ^2.2.0
+  google_fonts: ^6.3.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+  flutter_launcher_icons: ^0.13.1
+
+flutter_launcher_icons:
+  android: "launcher_icon"
+  ios: true
+  image_path: "assets/icon/app_icon.png"
+  min_sdk_android: 21 # android min sdk value
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/icon/app_icon.png
