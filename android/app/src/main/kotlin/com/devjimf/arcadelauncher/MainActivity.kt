@@ -265,6 +265,12 @@ class MainActivity : FlutterActivity() {
                     result.success(isBatteryOptimizationExempt())
                 }
 
+                "checkDeviceAdminEnabled" -> {
+                    val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
+                    val componentName = ComponentName(this, MyDeviceAdminReceiver::class.java)
+                    result.success(dpm.isAdminActive(componentName))
+                }
+
                 "isDeviceOwner" -> {
                     val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
                     result.success(dpm.isDeviceOwnerApp(packageName))

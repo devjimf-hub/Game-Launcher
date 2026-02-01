@@ -29,8 +29,12 @@ class _NodeSecurityPageState extends State<NodeSecurityPage> {
   int _sessionTimeout = 30; // Default 30 seconds
   bool _biometricEnabled = false;
   bool _biometricAvailable = false;
-  bool _accessibilityEnabled = false;
+
+  // Permission states
   bool _overlayEnabled = false;
+  bool _accessibilityEnabled = false;
+  bool _deviceAdminEnabled = false;
+  bool _batteryOptimizationExempt = false;
 
   @override
   void initState() {
@@ -55,9 +59,15 @@ class _NodeSecurityPageState extends State<NodeSecurityPage> {
       final sessionTimeout =
           await SafePrefs.getInt('session_timeout', defaultValue: 30);
       final biometricEnabled = await SafePrefs.getBool('biometric_enabled');
+
+      // Load all permissions
+      final overlayEnabled = await _launcherService.checkOverlayPermission();
       final accessibilityEnabled =
           await _launcherService.checkAccessibilityPermission();
-      final overlayEnabled = await _launcherService.checkOverlayPermission();
+      final deviceAdminEnabled =
+          await _launcherService.checkDeviceAdminEnabled();
+      final batteryExempt =
+          await _launcherService.checkBatteryOptimizationExempt();
 
       // Check if biometric is available on this device
       bool canCheckBiometrics = false;
@@ -76,8 +86,10 @@ class _NodeSecurityPageState extends State<NodeSecurityPage> {
           _sessionTimeout = sessionTimeout;
           _biometricAvailable = canCheckBiometrics;
           _biometricEnabled = biometricEnabled && canCheckBiometrics;
-          _accessibilityEnabled = accessibilityEnabled;
           _overlayEnabled = overlayEnabled;
+          _accessibilityEnabled = accessibilityEnabled;
+          _deviceAdminEnabled = deviceAdminEnabled;
+          _batteryOptimizationExempt = batteryExempt;
           _loading = false;
         });
       }
@@ -519,53 +531,8 @@ class _NodeSecurityPageState extends State<NodeSecurityPage> {
                         ),
                       ),
                     const SizedBox(height: 24),
-                    if (!_accessibilityEnabled || !_overlayEnabled)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 24.0),
-                        child: Container(
-                          padding: const EdgeInsets.all(20),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF12121A).withOpacity(0.8),
-                            border: Border.all(
-                                color: const Color(0xFFFF0055), width: 1),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Row(
-                                children: [
-                                  Icon(Icons.error_outline,
-                                      color: Color(0xFFFF0055), size: 24),
-                                  SizedBox(width: 12),
-                                  Text(
-                                    'SYSTEM PERMISSIONS REQUIRED',
-                                    style: TextStyle(
-                                      color: Color(0xFFFF0055),
-                                      fontWeight: FontWeight.bold,
-                                      letterSpacing: 1,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 16),
-                              _buildPermissionRow(
-                                'Display Over Other Apps',
-                                'Required to maintain system control in Arcade Mode.',
-                                _overlayEnabled,
-                                () => _launcherService.openOverlaySettings(),
-                              ),
-                              const SizedBox(height: 16),
-                              _buildPermissionRow(
-                                'Accessibility Service',
-                                'Required to lock screen inputs during Arcade Mode.',
-                                _accessibilityEnabled,
-                                () => _launcherService
-                                    .openAccessibilitySettings(),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
+                    _buildPermissionsCard(),
+                    const SizedBox(height: 24),
                   ],
                 ),
         ],
@@ -665,25 +632,124 @@ class _NodeSecurityPageState extends State<NodeSecurityPage> {
     );
   }
 
+  int get _permissionCount {
+    int count = 0;
+    if (_overlayEnabled) count++;
+    if (_accessibilityEnabled) count++;
+    if (_deviceAdminEnabled) count++;
+    if (_batteryOptimizationExempt) count++;
+    return count;
+  }
+
+  Widget _buildPermissionsCard() {
+    final allEnabled = _permissionCount == 4;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF12121A).withOpacity(0.8),
+        border: Border.all(
+          color: allEnabled ? const Color(0xFF00FF9D) : const Color(0xFF9D4EDD),
+          width: 1,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                allEnabled ? Icons.verified_user : Icons.security,
+                color: allEnabled ? const Color(0xFF00FF9D) : const Color(0xFF9D4EDD),
+                size: 20,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                'SYSTEM PERMISSIONS',
+                style: TextStyle(
+                  color: allEnabled ? const Color(0xFF00FF9D) : const Color(0xFF9D4EDD),
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 2,
+                ),
+              ),
+              const Spacer(),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: allEnabled
+                      ? const Color(0xFF00FF9D).withOpacity(0.1)
+                      : const Color(0xFF9D4EDD).withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(
+                  '$_permissionCount/4',
+                  style: TextStyle(
+                    color: allEnabled ? const Color(0xFF00FF9D) : const Color(0xFF9D4EDD),
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          _buildPermissionRow(
+            'Overlay Permission',
+            'Lock screen display',
+            Icons.layers_outlined,
+            _overlayEnabled,
+            () => _launcherService.openOverlaySettings(),
+          ),
+          const SizedBox(height: 8),
+          _buildPermissionRow(
+            'Accessibility Service',
+            'System UI blocking',
+            Icons.accessibility_new,
+            _accessibilityEnabled,
+            () => _launcherService.openAccessibilitySettings(),
+          ),
+          const SizedBox(height: 8),
+          _buildPermissionRow(
+            'Device Admin',
+            'Screen lock on timeout',
+            Icons.admin_panel_settings_outlined,
+            _deviceAdminEnabled,
+            () => _launcherService.openDeviceAdminSettings(),
+          ),
+          const SizedBox(height: 8),
+          _buildPermissionRow(
+            'Battery Optimization',
+            'Background operation',
+            Icons.battery_saver,
+            _batteryOptimizationExempt,
+            () => _launcherService.openBatteryOptimizationSettings(),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildPermissionRow(
-      String title, String description, bool isGranted, VoidCallback onTap) {
+      String title, String description, IconData icon, bool isGranted, VoidCallback onTap) {
     return GestureDetector(
       onTap: onTap,
       child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         decoration: BoxDecoration(
           color: const Color(0xFF05050A).withOpacity(0.5),
+          borderRadius: BorderRadius.circular(4),
           border: Border.all(
               color: isGranted
-                  ? const Color(0xFF00FF9D)
-                  : const Color(0xFFFF0055)),
+                  ? const Color(0xFF00FF9D).withOpacity(0.3)
+                  : const Color(0xFFFF6B6B).withOpacity(0.3)),
         ),
-        padding: const EdgeInsets.all(12),
         child: Row(
           children: [
             Icon(
-              isGranted ? Icons.check_circle : Icons.warning_amber_rounded,
-              color:
-                  isGranted ? const Color(0xFF00FF9D) : const Color(0xFFFF0055),
+              icon,
+              color: isGranted ? const Color(0xFF00FF9D) : Colors.white54,
+              size: 20,
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -693,21 +759,35 @@ class _NodeSecurityPageState extends State<NodeSecurityPage> {
                   Text(
                     title,
                     style: TextStyle(
-                      color: isGranted ? Colors.white : const Color(0xFFFF0055),
+                      color: isGranted ? const Color(0xFF00FF9D) : Colors.white,
                       fontWeight: FontWeight.bold,
+                      fontSize: 12,
                     ),
                   ),
-                  const SizedBox(height: 4),
                   Text(
                     description,
-                    style: TextStyle(color: Colors.white54, fontSize: 11),
+                    style: const TextStyle(color: Colors.white38, fontSize: 10),
                   ),
                 ],
               ),
             ),
-            if (!isGranted)
-              const Icon(Icons.arrow_forward_ios,
-                  color: Colors.white54, size: 14),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: isGranted
+                    ? const Color(0xFF00FF9D).withOpacity(0.1)
+                    : const Color(0xFFFF6B6B).withOpacity(0.1),
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Text(
+                isGranted ? 'ON' : 'OFF',
+                style: TextStyle(
+                  color: isGranted ? const Color(0xFF00FF9D) : const Color(0xFFFF6B6B),
+                  fontSize: 9,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
           ],
         ),
       ),

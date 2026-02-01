@@ -509,8 +509,17 @@ class OverlayService : Service() {
                 textView.text = "$headerName will Shutdown in 0"
                 val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
                 val componentName = ComponentName(this@OverlayService, MyDeviceAdminReceiver::class.java)
+                android.util.Log.d("ArcadeOverlay", "Countdown finished, attempting to lock device")
+                android.util.Log.d("ArcadeOverlay", "Device Admin active: ${dpm.isAdminActive(componentName)}")
                 if (dpm.isAdminActive(componentName)) {
-                    try { dpm.lockNow() } catch (e: Exception) {}
+                    try {
+                        dpm.lockNow()
+                        android.util.Log.d("ArcadeOverlay", "lockNow() called successfully")
+                    } catch (e: Exception) {
+                        android.util.Log.e("ArcadeOverlay", "lockNow() failed: ${e.message}")
+                    }
+                } else {
+                    android.util.Log.w("ArcadeOverlay", "Device Admin not active - cannot lock screen. Please enable Device Admin in Settings.")
                 }
             }
         }.start()

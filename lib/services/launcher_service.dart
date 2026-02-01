@@ -278,6 +278,16 @@ class LauncherService {
     }
   }
 
+  Future<bool> checkDeviceAdminEnabled() async {
+    try {
+      return await _appsChannel.invokeMethod('checkDeviceAdminEnabled') ?? false;
+    } on PlatformException catch (e) {
+      debugPrint(
+          "LauncherService: Failed to check device admin - ${e.code}");
+      return false;
+    }
+  }
+
   // ============ APP LOCK METHODS (NEW) ============
 
   /// Update the list of locked apps in native LockManager

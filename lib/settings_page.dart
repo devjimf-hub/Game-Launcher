@@ -20,7 +20,7 @@ class SettingsPage extends StatefulWidget {
   State<SettingsPage> createState() => _SettingsPageState();
 }
 
-class _SettingsPageState extends State<SettingsPage> {
+class _SettingsPageState extends State<SettingsPage> with WidgetsBindingObserver {
   final LauncherService _launcherService = LauncherService();
   int _currentGridSize = 2;
   bool _arcadeModeEnabled = false;
@@ -29,10 +29,46 @@ class _SettingsPageState extends State<SettingsPage> {
   String _launchWarningText =
       'SECURITY: Do not leave accounts logged in. Always logout after session.';
 
+  // Permission states
+  bool _overlayEnabled = false;
+  bool _accessibilityEnabled = false;
+  bool _deviceAdminEnabled = false;
+  bool _batteryOptimizationExempt = false;
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadSettings();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _loadPermissions();
+    }
+  }
+
+  Future<void> _loadPermissions() async {
+    final overlay = await _launcherService.checkOverlayPermission();
+    final accessibility = await _launcherService.checkAccessibilityPermission();
+    final deviceAdmin = await _launcherService.checkDeviceAdminEnabled();
+    final batteryExempt = await _launcherService.checkBatteryOptimizationExempt();
+
+    if (mounted) {
+      setState(() {
+        _overlayEnabled = overlay;
+        _accessibilityEnabled = accessibility;
+        _deviceAdminEnabled = deviceAdmin;
+        _batteryOptimizationExempt = batteryExempt;
+      });
+    }
   }
 
   void _loadSettings() async {
@@ -41,6 +77,9 @@ class _SettingsPageState extends State<SettingsPage> {
     final showNames = await SafePrefs.getBool(PrefKeys.showAppNames, defaultValue: PrefKeys.defaultShowAppNames);
     final iconSize = await SafePrefs.getDouble(PrefKeys.cardIconSize, defaultValue: PrefKeys.defaultCardIconSize);
     final warningText = await SafePrefs.getString(PrefKeys.launchWarningText);
+
+    // Load permissions
+    await _loadPermissions();
 
     if (mounted) {
       setState(() {
@@ -295,11 +334,11 @@ class _SettingsPageState extends State<SettingsPage> {
                           style: TextStyle(
                               color: Colors.white,
                               fontWeight: FontWeight.bold,
-                              fontSize: 13)), // Reduced font size
+                              fontSize: 13)),
                       subtitle: const Text('Management of hidden applications',
                           style: TextStyle(
                               color: Colors.white54,
-                              fontSize: 11)), // Reduced font size
+                              fontSize: 11)),
                       onTap: () {
                         Navigator.push(
                           context,
@@ -311,24 +350,6 @@ class _SettingsPageState extends State<SettingsPage> {
                     ),
                     ListTile(
                       leading: const Icon(
-                        Icons.admin_panel_settings,
-                        color: Color(0xFF9D4EDD),
-                      ),
-                      title: const Text('ADM PRIVILEGES',
-                          style: TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 13)), // Reduced font size
-                      subtitle: const Text('Enable device administrator',
-                          style: TextStyle(
-                              color: Colors.white54,
-                              fontSize: 11)), // Reduced font size
-                      onTap: () async {
-                        await _launcherService.openDeviceAdminSettings();
-                      },
-                    ),
-                    ListTile(
-                      leading: const Icon(
                         Icons.warning,
                         color: Color(0xFF9D4EDD),
                       ),
@@ -336,11 +357,11 @@ class _SettingsPageState extends State<SettingsPage> {
                           style: TextStyle(
                               color: Colors.white,
                               fontWeight: FontWeight.bold,
-                              fontSize: 13)), // Reduced font size
+                              fontSize: 13)),
                       subtitle: const Text('Edit security warning message',
                           style: TextStyle(
                               color: Colors.white54,
-                              fontSize: 11)), // Reduced font size
+                              fontSize: 11)),
                       onTap: _showChangeWarningDialog,
                     ),
                     SwitchListTile(
@@ -350,11 +371,11 @@ class _SettingsPageState extends State<SettingsPage> {
                           style: TextStyle(
                               color: Colors.white,
                               fontWeight: FontWeight.bold,
-                              fontSize: 13)), // Reduced font size
+                              fontSize: 13)),
                       subtitle: const Text('Auto-lock when power link severed',
                           style: TextStyle(
                               color: Colors.white54,
-                              fontSize: 11)), // Reduced font size
+                              fontSize: 11)),
                       value: _arcadeModeEnabled,
                       activeColor: const Color(0xFF9D4EDD),
                       inactiveTrackColor: Colors.white10,
@@ -392,6 +413,42 @@ class _SettingsPageState extends State<SettingsPage> {
                 ),
                 _buildSettingsCard(
                   context,
+                  title: 'SYSTEM PERMISSIONS',
+                  icon: Icons.verified_user,
+                  borderColor: const Color(0xFF00D4FF),
+                  children: [
+                    _buildPermissionTile(
+                      title: 'OVERLAY PERMISSION',
+                      subtitle: 'Required for arcade lock screen',
+                      icon: Icons.layers_outlined,
+                      isEnabled: _overlayEnabled,
+                      onTap: () => _launcherService.openOverlaySettings(),
+                    ),
+                    _buildPermissionTile(
+                      title: 'ACCESSIBILITY SERVICE',
+                      subtitle: 'Blocks system UI in kiosk mode',
+                      icon: Icons.accessibility_new,
+                      isEnabled: _accessibilityEnabled,
+                      onTap: () => _launcherService.openAccessibilitySettings(),
+                    ),
+                    _buildPermissionTile(
+                      title: 'DEVICE ADMIN',
+                      subtitle: 'Enables screen lock on timeout',
+                      icon: Icons.admin_panel_settings_outlined,
+                      isEnabled: _deviceAdminEnabled,
+                      onTap: () => _launcherService.openDeviceAdminSettings(),
+                    ),
+                    _buildPermissionTile(
+                      title: 'BATTERY OPTIMIZATION',
+                      subtitle: 'Keeps app running in background',
+                      icon: Icons.battery_saver,
+                      isEnabled: _batteryOptimizationExempt,
+                      onTap: () => _launcherService.openBatteryOptimizationSettings(),
+                    ),
+                  ],
+                ),
+                _buildSettingsCard(
+                  context,
                   title: 'SYSTEM INFO',
                   icon: Icons.info_outline,
                   children: [
@@ -404,7 +461,7 @@ class _SettingsPageState extends State<SettingsPage> {
                           style: TextStyle(
                               color: Colors.white,
                               fontWeight: FontWeight.bold,
-                              fontSize: 13)), // Reduced font size
+                              fontSize: 13)),
                       onTap: () {
                         showAboutDialog(
                           context: context,
@@ -453,6 +510,80 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildPermissionTile({
+    required String title,
+    required String subtitle,
+    required IconData icon,
+    required bool isEnabled,
+    required VoidCallback onTap,
+  }) {
+    return ListTile(
+      leading: Stack(
+        children: [
+          Icon(
+            icon,
+            color: isEnabled ? const Color(0xFF00D4FF) : Colors.white54,
+          ),
+          if (isEnabled)
+            Positioned(
+              right: -2,
+              bottom: -2,
+              child: Container(
+                padding: const EdgeInsets.all(1),
+                decoration: const BoxDecoration(
+                  color: Color(0xFF05050A),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.check_circle,
+                  size: 12,
+                  color: Color(0xFF00FF9D),
+                ),
+              ),
+            ),
+        ],
+      ),
+      title: Text(
+        title,
+        style: TextStyle(
+          color: isEnabled ? const Color(0xFF00D4FF) : Colors.white,
+          fontWeight: FontWeight.bold,
+          fontSize: 13,
+        ),
+      ),
+      subtitle: Text(
+        subtitle,
+        style: const TextStyle(
+          color: Colors.white54,
+          fontSize: 11,
+        ),
+      ),
+      trailing: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: isEnabled
+              ? const Color(0xFF00FF9D).withOpacity(0.1)
+              : const Color(0xFFFF6B6B).withOpacity(0.1),
+          borderRadius: BorderRadius.circular(4),
+          border: Border.all(
+            color: isEnabled ? const Color(0xFF00FF9D) : const Color(0xFFFF6B6B),
+            width: 1,
+          ),
+        ),
+        child: Text(
+          isEnabled ? 'ENABLED' : 'DISABLED',
+          style: TextStyle(
+            color: isEnabled ? const Color(0xFF00FF9D) : const Color(0xFFFF6B6B),
+            fontSize: 9,
+            fontWeight: FontWeight.bold,
+            letterSpacing: 1,
+          ),
+        ),
+      ),
+      onTap: onTap,
     );
   }
 
