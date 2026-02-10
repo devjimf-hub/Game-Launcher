@@ -6,7 +6,8 @@ import 'package:arcade_launcher/constants/pref_keys.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'dart:io';
 
-import 'package:pinput/pinput.dart';
+import 'package:arcade_launcher/widgets/settings/permission_tile.dart';
+
 import 'services/launcher_service.dart';
 import 'services/safe_prefs.dart';
 import 'models/app_info.dart';
@@ -20,7 +21,8 @@ class SettingsPage extends StatefulWidget {
   State<SettingsPage> createState() => _SettingsPageState();
 }
 
-class _SettingsPageState extends State<SettingsPage> with WidgetsBindingObserver {
+class _SettingsPageState extends State<SettingsPage>
+    with WidgetsBindingObserver {
   final LauncherService _launcherService = LauncherService();
   int _currentGridSize = 2;
   bool _arcadeModeEnabled = false;
@@ -34,6 +36,9 @@ class _SettingsPageState extends State<SettingsPage> with WidgetsBindingObserver
   bool _accessibilityEnabled = false;
   bool _deviceAdminEnabled = false;
   bool _batteryOptimizationExempt = false;
+
+  // Overlay image
+  String? _overlayImagePath;
 
   @override
   void initState() {
@@ -59,7 +64,8 @@ class _SettingsPageState extends State<SettingsPage> with WidgetsBindingObserver
     final overlay = await _launcherService.checkOverlayPermission();
     final accessibility = await _launcherService.checkAccessibilityPermission();
     final deviceAdmin = await _launcherService.checkDeviceAdminEnabled();
-    final batteryExempt = await _launcherService.checkBatteryOptimizationExempt();
+    final batteryExempt =
+        await _launcherService.checkBatteryOptimizationExempt();
 
     if (mounted) {
       setState(() {
@@ -72,11 +78,15 @@ class _SettingsPageState extends State<SettingsPage> with WidgetsBindingObserver
   }
 
   void _loadSettings() async {
-    final gridColumns = await SafePrefs.getInt(PrefKeys.gridColumns, defaultValue: PrefKeys.defaultGridColumns);
+    final gridColumns = await SafePrefs.getInt(PrefKeys.gridColumns,
+        defaultValue: PrefKeys.defaultGridColumns);
     final arcadeMode = await SafePrefs.getBool(PrefKeys.arcadeModeEnabled);
-    final showNames = await SafePrefs.getBool(PrefKeys.showAppNames, defaultValue: PrefKeys.defaultShowAppNames);
-    final iconSize = await SafePrefs.getDouble(PrefKeys.cardIconSize, defaultValue: PrefKeys.defaultCardIconSize);
+    final showNames = await SafePrefs.getBool(PrefKeys.showAppNames,
+        defaultValue: PrefKeys.defaultShowAppNames);
+    final iconSize = await SafePrefs.getDouble(PrefKeys.cardIconSize,
+        defaultValue: PrefKeys.defaultCardIconSize);
     final warningText = await SafePrefs.getString(PrefKeys.launchWarningText);
+    final overlayImagePath = await _launcherService.getOverlayImagePath();
 
     // Load permissions
     await _loadPermissions();
@@ -88,6 +98,7 @@ class _SettingsPageState extends State<SettingsPage> with WidgetsBindingObserver
         _showAppNames = showNames;
         _cardIconSize = iconSize;
         _launchWarningText = warningText ?? _launchWarningText;
+        _overlayImagePath = overlayImagePath;
       });
     }
   }
@@ -313,9 +324,8 @@ class _SettingsPageState extends State<SettingsPage> with WidgetsBindingObserver
                               fontWeight: FontWeight.bold,
                               fontSize: 13)),
                       subtitle: const Text('Set PIN lock for settings access',
-                          style: TextStyle(
-                              color: Colors.white54,
-                              fontSize: 11)),
+                          style:
+                              TextStyle(color: Colors.white54, fontSize: 11)),
                       onTap: () {
                         Navigator.push(
                           context,
@@ -336,9 +346,8 @@ class _SettingsPageState extends State<SettingsPage> with WidgetsBindingObserver
                               fontWeight: FontWeight.bold,
                               fontSize: 13)),
                       subtitle: const Text('Management of hidden applications',
-                          style: TextStyle(
-                              color: Colors.white54,
-                              fontSize: 11)),
+                          style:
+                              TextStyle(color: Colors.white54, fontSize: 11)),
                       onTap: () {
                         Navigator.push(
                           context,
@@ -359,9 +368,8 @@ class _SettingsPageState extends State<SettingsPage> with WidgetsBindingObserver
                               fontWeight: FontWeight.bold,
                               fontSize: 13)),
                       subtitle: const Text('Edit security warning message',
-                          style: TextStyle(
-                              color: Colors.white54,
-                              fontSize: 11)),
+                          style:
+                              TextStyle(color: Colors.white54, fontSize: 11)),
                       onTap: _showChangeWarningDialog,
                     ),
                     SwitchListTile(
@@ -373,9 +381,8 @@ class _SettingsPageState extends State<SettingsPage> with WidgetsBindingObserver
                               fontWeight: FontWeight.bold,
                               fontSize: 13)),
                       subtitle: const Text('Auto-lock when power link severed',
-                          style: TextStyle(
-                              color: Colors.white54,
-                              fontSize: 11)),
+                          style:
+                              TextStyle(color: Colors.white54, fontSize: 11)),
                       value: _arcadeModeEnabled,
                       activeColor: const Color(0xFF9D4EDD),
                       inactiveTrackColor: Colors.white10,
@@ -383,7 +390,8 @@ class _SettingsPageState extends State<SettingsPage> with WidgetsBindingObserver
                         if (value) {
                           if (await Permission.systemAlertWindow.isGranted) {
                             await _launcherService.startOverlayService();
-                            await SafePrefs.setBool(PrefKeys.arcadeModeEnabled, true);
+                            await SafePrefs.setBool(
+                                PrefKeys.arcadeModeEnabled, true);
                             setState(() {
                               _arcadeModeEnabled = true;
                             });
@@ -402,10 +410,67 @@ class _SettingsPageState extends State<SettingsPage> with WidgetsBindingObserver
                           }
                         } else {
                           await _launcherService.stopOverlayService();
-                          await SafePrefs.setBool(PrefKeys.arcadeModeEnabled, false);
+                          await SafePrefs.setBool(
+                              PrefKeys.arcadeModeEnabled, false);
                           setState(() {
                             _arcadeModeEnabled = false;
                           });
+                        }
+                      },
+                    ),
+                    ListTile(
+                      leading: Icon(
+                        Icons.image,
+                        color: _overlayImagePath != null
+                            ? const Color(0xFF00FF9D)
+                            : const Color(0xFF9D4EDD),
+                      ),
+                      title: const Text('OVERLAY IMAGE',
+                          style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 13)),
+                      subtitle: Text(
+                          _overlayImagePath != null
+                              ? 'Custom image set (tap to change)'
+                              : 'Set custom lock screen image/GIF',
+                          style: const TextStyle(
+                              color: Colors.white54, fontSize: 11)),
+                      trailing: _overlayImagePath != null
+                          ? IconButton(
+                              icon: const Icon(Icons.clear,
+                                  color: Color(0xFFFF6B6B)),
+                              onPressed: () async {
+                                await _launcherService.clearOverlayImage();
+                                setState(() {
+                                  _overlayImagePath = null;
+                                });
+                                if (mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text('OVERLAY IMAGE CLEARED'),
+                                      backgroundColor: Color(0xFF9D4EDD),
+                                    ),
+                                  );
+                                }
+                              },
+                            )
+                          : null,
+                      onTap: () async {
+                        await _launcherService.pickOverlayImage();
+                        // Reload the path after picking
+                        final newPath =
+                            await _launcherService.getOverlayImagePath();
+                        if (mounted && newPath != null) {
+                          setState(() {
+                            _overlayImagePath = newPath;
+                          });
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('OVERLAY IMAGE SET'),
+                              backgroundColor: Color(0xFF00D4FF),
+                            ),
+                          );
                         }
                       },
                     ),
@@ -417,33 +482,34 @@ class _SettingsPageState extends State<SettingsPage> with WidgetsBindingObserver
                   icon: Icons.verified_user,
                   borderColor: const Color(0xFF00D4FF),
                   children: [
-                    _buildPermissionTile(
+                    PermissionTile(
                       title: 'OVERLAY PERMISSION',
                       subtitle: 'Required for arcade lock screen',
                       icon: Icons.layers_outlined,
                       isEnabled: _overlayEnabled,
                       onTap: () => _launcherService.openOverlaySettings(),
                     ),
-                    _buildPermissionTile(
+                    PermissionTile(
                       title: 'ACCESSIBILITY SERVICE',
                       subtitle: 'Blocks system UI in kiosk mode',
                       icon: Icons.accessibility_new,
                       isEnabled: _accessibilityEnabled,
                       onTap: () => _launcherService.openAccessibilitySettings(),
                     ),
-                    _buildPermissionTile(
+                    PermissionTile(
                       title: 'DEVICE ADMIN',
                       subtitle: 'Enables screen lock on timeout',
                       icon: Icons.admin_panel_settings_outlined,
                       isEnabled: _deviceAdminEnabled,
                       onTap: () => _launcherService.openDeviceAdminSettings(),
                     ),
-                    _buildPermissionTile(
+                    PermissionTile(
                       title: 'BATTERY OPTIMIZATION',
                       subtitle: 'Keeps app running in background',
                       icon: Icons.battery_saver,
                       isEnabled: _batteryOptimizationExempt,
-                      onTap: () => _launcherService.openBatteryOptimizationSettings(),
+                      onTap: () =>
+                          _launcherService.openBatteryOptimizationSettings(),
                     ),
                   ],
                 ),
@@ -513,80 +579,6 @@ class _SettingsPageState extends State<SettingsPage> with WidgetsBindingObserver
     );
   }
 
-  Widget _buildPermissionTile({
-    required String title,
-    required String subtitle,
-    required IconData icon,
-    required bool isEnabled,
-    required VoidCallback onTap,
-  }) {
-    return ListTile(
-      leading: Stack(
-        children: [
-          Icon(
-            icon,
-            color: isEnabled ? const Color(0xFF00D4FF) : Colors.white54,
-          ),
-          if (isEnabled)
-            Positioned(
-              right: -2,
-              bottom: -2,
-              child: Container(
-                padding: const EdgeInsets.all(1),
-                decoration: const BoxDecoration(
-                  color: Color(0xFF05050A),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(
-                  Icons.check_circle,
-                  size: 12,
-                  color: Color(0xFF00FF9D),
-                ),
-              ),
-            ),
-        ],
-      ),
-      title: Text(
-        title,
-        style: TextStyle(
-          color: isEnabled ? const Color(0xFF00D4FF) : Colors.white,
-          fontWeight: FontWeight.bold,
-          fontSize: 13,
-        ),
-      ),
-      subtitle: Text(
-        subtitle,
-        style: const TextStyle(
-          color: Colors.white54,
-          fontSize: 11,
-        ),
-      ),
-      trailing: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        decoration: BoxDecoration(
-          color: isEnabled
-              ? const Color(0xFF00FF9D).withOpacity(0.1)
-              : const Color(0xFFFF6B6B).withOpacity(0.1),
-          borderRadius: BorderRadius.circular(4),
-          border: Border.all(
-            color: isEnabled ? const Color(0xFF00FF9D) : const Color(0xFFFF6B6B),
-            width: 1,
-          ),
-        ),
-        child: Text(
-          isEnabled ? 'ENABLED' : 'DISABLED',
-          style: TextStyle(
-            color: isEnabled ? const Color(0xFF00FF9D) : const Color(0xFFFF6B6B),
-            fontSize: 9,
-            fontWeight: FontWeight.bold,
-            letterSpacing: 1,
-          ),
-        ),
-      ),
-      onTap: onTap,
-    );
-  }
-
   Future<void> _showChangeWarningDialog() async {
     TextEditingController controller = TextEditingController(
       text: _launchWarningText,
@@ -623,7 +615,8 @@ class _SettingsPageState extends State<SettingsPage> with WidgetsBindingObserver
           ),
           TextButton(
             onPressed: () async {
-              await SafePrefs.setString(PrefKeys.launchWarningText, controller.text);
+              await SafePrefs.setString(
+                  PrefKeys.launchWarningText, controller.text);
               if (mounted) {
                 setState(() {
                   _launchWarningText = controller.text;
@@ -646,8 +639,8 @@ class _SettingsPageState extends State<SettingsPage> with WidgetsBindingObserver
   }
 
   Future<void> _showChangeTitleDialog() async {
-    String currentTitle =
-        await SafePrefs.getString(PrefKeys.launcherTitle) ?? PrefKeys.defaultLauncherTitle;
+    String currentTitle = await SafePrefs.getString(PrefKeys.launcherTitle) ??
+        PrefKeys.defaultLauncherTitle;
     TextEditingController controller = TextEditingController(
       text: currentTitle,
     );
@@ -682,7 +675,8 @@ class _SettingsPageState extends State<SettingsPage> with WidgetsBindingObserver
           ),
           TextButton(
             onPressed: () async {
-              await SafePrefs.setString(PrefKeys.launcherTitle, controller.text);
+              await SafePrefs.setString(
+                  PrefKeys.launcherTitle, controller.text);
               if (mounted) {
                 Navigator.pop(context);
                 ScaffoldMessenger.of(
@@ -874,86 +868,6 @@ class _SettingsPageState extends State<SettingsPage> with WidgetsBindingObserver
           ...children,
         ],
       ),
-    );
-  }
-}
-
-class PinVerificationDialog extends StatefulWidget {
-  final String correctPin;
-  const PinVerificationDialog({super.key, required this.correctPin});
-
-  @override
-  State<PinVerificationDialog> createState() => _PinVerificationDialogState();
-}
-
-class _PinVerificationDialogState extends State<PinVerificationDialog> {
-  final TextEditingController _controller = TextEditingController();
-  bool _error = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      backgroundColor: const Color(0xFF0D0D0D),
-      shape: RoundedRectangleBorder(
-        side: BorderSide(
-            color: _error ? const Color(0xFFFF0055) : const Color(0xFF00D4FF),
-            width: 1),
-      ),
-      title: const Text(
-        'SECURITY CHECK',
-        style: TextStyle(
-            color: Color(0xFF00D4FF),
-            fontWeight: FontWeight.bold,
-            letterSpacing: 2),
-        textAlign: TextAlign.center,
-      ),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Text('ENTER AUTHORIZATION CODE',
-              style: TextStyle(color: Colors.white54, fontSize: 10)),
-          const SizedBox(height: 20),
-          Pinput(
-            controller: _controller,
-            length: widget.correctPin.length,
-            obscureText: true,
-            defaultPinTheme: PinTheme(
-              width: 50,
-              height: 50,
-              textStyle: const TextStyle(
-                  fontSize: 20,
-                  color: Color(0xFF9D4EDD), // Purple for input
-                  fontWeight: FontWeight.bold),
-              decoration: BoxDecoration(
-                border: Border.all(color: const Color(0xFF333333)),
-                color: const Color(0xFF1A1A1A),
-              ),
-            ),
-            focusedPinTheme: PinTheme(
-              width: 50,
-              height: 50,
-              decoration: BoxDecoration(
-                border: Border.all(color: const Color(0xFF00D4FF)),
-                color: const Color(0xFF1A1A1A),
-              ),
-            ),
-            onCompleted: (pin) {
-              if (pin == widget.correctPin) {
-                Navigator.pop(context, true);
-              } else {
-                setState(() => _error = true);
-                _controller.clear();
-              }
-            },
-          ),
-        ],
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context, false),
-          child: const Text('CANCEL', style: TextStyle(color: Colors.grey)),
-        ),
-      ],
     );
   }
 }

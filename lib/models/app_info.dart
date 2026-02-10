@@ -22,6 +22,14 @@ class AppInfo {
     );
   }
 
+  Map<String, dynamic> toMap() {
+    return {
+      'name': name,
+      'packageName': packageName,
+      'iconPath': iconPath,
+    };
+  }
+
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||

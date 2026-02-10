@@ -6,13 +6,15 @@ import '../models/app_info.dart';
 class ServiceResult<T> {
   final T? data;
   final String? error;
+  final String? errorCode;
   final bool success;
 
   ServiceResult.success([this.data])
       : success = true,
-        error = null;
+        error = null,
+        errorCode = null;
 
-  ServiceResult.failure(this.error)
+  ServiceResult.failure(this.error, {this.errorCode})
       : success = false,
         data = null;
 }
@@ -52,7 +54,8 @@ class LauncherService {
       return ServiceResult.success();
     } on PlatformException catch (e) {
       debugPrint("LauncherService: Failed to launch app - ${e.code}");
-      return ServiceResult.failure(_getAppLaunchErrorMessage(e.code));
+      return ServiceResult.failure(_getAppLaunchErrorMessage(e.code),
+          errorCode: e.code);
     }
   }
 
@@ -85,6 +88,34 @@ class LauncherService {
     } on PlatformException catch (e) {
       debugPrint("LauncherService: Failed to get wallpaper path - ${e.code}");
       return null;
+    }
+  }
+
+  // ============ OVERLAY IMAGE ============
+
+  Future<void> pickOverlayImage() async {
+    try {
+      await _appsChannel.invokeMethod('pickOverlayImage');
+    } on PlatformException catch (e) {
+      debugPrint("LauncherService: Failed to pick overlay image - ${e.code}");
+    }
+  }
+
+  Future<String?> getOverlayImagePath() async {
+    try {
+      return await _appsChannel.invokeMethod('getOverlayImagePath');
+    } on PlatformException catch (e) {
+      debugPrint(
+          "LauncherService: Failed to get overlay image path - ${e.code}");
+      return null;
+    }
+  }
+
+  Future<void> clearOverlayImage() async {
+    try {
+      await _appsChannel.invokeMethod('clearOverlayImage');
+    } on PlatformException catch (e) {
+      debugPrint("LauncherService: Failed to clear overlay image - ${e.code}");
     }
   }
 
@@ -269,7 +300,8 @@ class LauncherService {
 
   Future<bool> checkBatteryOptimizationExempt() async {
     try {
-      return await _appsChannel.invokeMethod('checkBatteryOptimizationExempt') ??
+      return await _appsChannel
+              .invokeMethod('checkBatteryOptimizationExempt') ??
           false;
     } on PlatformException catch (e) {
       debugPrint(
@@ -280,10 +312,10 @@ class LauncherService {
 
   Future<bool> checkDeviceAdminEnabled() async {
     try {
-      return await _appsChannel.invokeMethod('checkDeviceAdminEnabled') ?? false;
+      return await _appsChannel.invokeMethod('checkDeviceAdminEnabled') ??
+          false;
     } on PlatformException catch (e) {
-      debugPrint(
-          "LauncherService: Failed to check device admin - ${e.code}");
+      debugPrint("LauncherService: Failed to check device admin - ${e.code}");
       return false;
     }
   }
@@ -349,25 +381,12 @@ class LauncherService {
     }
   }
 
-  /// Revoke temporary authorization for an app
-  Future<void> revokeAuthorization(String packageName) async {
-    try {
-      await _appLockChannel.invokeMethod('revokeAuthorization', {
-        'packageName': packageName,
-      });
-    } on PlatformException catch (e) {
-      debugPrint(
-          "LauncherService: Failed to revoke authorization - ${e.code}");
-    }
-  }
-
   /// Clear all temporary authorizations
   Future<void> clearAllAuthorizations() async {
     try {
       await _appLockChannel.invokeMethod('clearAllAuthorizations');
     } on PlatformException catch (e) {
-      debugPrint(
-          "LauncherService: Failed to clear authorizations - ${e.code}");
+      debugPrint("LauncherService: Failed to clear authorizations - ${e.code}");
     }
   }
 
@@ -378,8 +397,7 @@ class LauncherService {
         'seconds': seconds,
       });
     } on PlatformException catch (e) {
-      debugPrint(
-          "LauncherService: Failed to set session timeout - ${e.code}");
+      debugPrint("LauncherService: Failed to set session timeout - ${e.code}");
     }
   }
 
@@ -424,15 +442,15 @@ class LauncherService {
     try {
       await _appLockChannel.invokeMethod('reloadSettings');
     } on PlatformException catch (e) {
-      debugPrint(
-          "LauncherService: Failed to reload lock settings - ${e.code}");
+      debugPrint("LauncherService: Failed to reload lock settings - ${e.code}");
     }
   }
 
   /// Check if the accessibility service is currently running
   Future<bool> isAccessibilityServiceRunning() async {
     try {
-      return await _appLockChannel.invokeMethod('isAccessibilityServiceRunning') ??
+      return await _appLockChannel
+              .invokeMethod('isAccessibilityServiceRunning') ??
           false;
     } on PlatformException catch (e) {
       debugPrint(

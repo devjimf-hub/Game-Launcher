@@ -11,6 +11,7 @@ class GameCardSmall extends StatelessWidget {
   final bool isRecent;
   final bool showAppName;
   final double iconScale;
+  final int index;
   final VoidCallback onTap;
 
   /// Maximum cache size for icons to prevent memory issues on high DPI devices
@@ -23,13 +24,15 @@ class GameCardSmall extends StatelessWidget {
     required this.isRecent,
     required this.showAppName,
     required this.iconScale,
+    required this.index,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    return _PressableScale(
       onTap: onTap,
+      index: index,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -103,7 +106,8 @@ class GameCardSmall extends StatelessWidget {
   }
 
   Widget _buildAppBackground(BuildContext context) {
-    final String? bgPath = AppBackgroundService.getBackgroundSync(app.packageName);
+    final String? bgPath =
+        AppBackgroundService.getBackgroundSync(app.packageName);
 
     if (bgPath != null) {
       return Image.file(
@@ -139,7 +143,8 @@ class GameCardSmall extends StatelessWidget {
   Widget _buildAppIcon(BuildContext context, double size) {
     final double pixelRatio = MediaQuery.of(context).devicePixelRatio;
     // Cap cache size to prevent excessive memory usage on high DPI devices
-    final int cacheSize = (size * pixelRatio).round().clamp(0, maxIconCacheSize);
+    final int cacheSize =
+        (size * pixelRatio).round().clamp(0, maxIconCacheSize);
 
     if (app.iconPath != null) {
       return Image.file(
@@ -190,9 +195,99 @@ class GameCardSmall extends StatelessWidget {
     if (diff.inDays < 7) return 'Played ${diff.inDays}d ago';
 
     const months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec'
     ];
     return 'Played ${months[lastPlayed.month - 1]} ${lastPlayed.day}';
+  }
+}
+
+class _PressableScale extends StatefulWidget {
+  final Widget child;
+  final VoidCallback onTap;
+  final int index;
+
+  const _PressableScale(
+      {required this.child, required this.onTap, required this.index});
+
+  @override
+  State<_PressableScale> createState() => _PressableScaleState();
+}
+
+class _PressableScaleState extends State<_PressableScale>
+    with TickerProviderStateMixin {
+  late AnimationController _controller;
+  late AnimationController _entranceController;
+  late Animation<double> _scaleAnimation;
+  late Animation<double> _entranceAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 150),
+    );
+    _scaleAnimation = Tween<double>(begin: 1.0, end: 0.95).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
+    );
+
+    _entranceController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 600),
+    );
+
+    _entranceAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(
+        parent: _entranceController,
+        curve: Curves.easeOutBack,
+      ),
+    );
+
+    // Staggered entrance based on index
+    Future.delayed(Duration(milliseconds: (widget.index % 12) * 50), () {
+      if (mounted) {
+        _entranceController.forward();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    _entranceController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ScaleTransition(
+      scale: _entranceAnimation,
+      child: FadeTransition(
+        opacity: _entranceAnimation,
+        child: GestureDetector(
+          onTapDown: (_) => _controller.forward(),
+          onTapUp: (_) => _controller.reverse(),
+          onTapCancel: () => _controller.reverse(),
+          onTap: () {
+            widget.onTap();
+          },
+          child: ScaleTransition(
+            scale: _scaleAnimation,
+            child: widget.child,
+          ),
+        ),
+      ),
+    );
   }
 }

@@ -29,7 +29,8 @@ object LockManager {
     private const val DEFAULT_PIN_LENGTH = 4
 
     // Session management
-    private const val SESSION_TIMEOUT_MS = 30_000L // 30 seconds
+    @Volatile
+    private var SESSION_TIMEOUT_MS = 30_000L // Default 30 seconds
     @Volatile
     private var authorizedApps = ConcurrentHashMap<String, Long>()
 
@@ -244,8 +245,19 @@ object LockManager {
     /**
      * Update cached PIN (called when PIN is changed in Flutter)
      */
+    /**
+     * Update cached PIN (called when PIN is changed in Flutter)
+     */
     fun updatePin(newPin: String?) {
         cachedPin = newPin
         Log.i(TAG, "PIN updated, length: ${newPin?.length ?: 0}")
+    }
+
+    /**
+     * Update session timeout
+     */
+    fun setSessionTimeout(seconds: Int) {
+        SESSION_TIMEOUT_MS = seconds * 1000L
+        Log.i(TAG, "Session timeout updated to ${seconds}s")
     }
 }

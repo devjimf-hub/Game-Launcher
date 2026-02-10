@@ -45,10 +45,12 @@ class MainActivity : FlutterActivity() {
         private const val CHANNEL_APP_LOCK = "com.devjimf.arcadelauncher/applock"
         private const val CHANNEL_OVERLAY = "com.devjimf.arcadelauncher/overlay"
         private const val PICK_IMAGE_REQUEST = 1001
+        private const val PICK_OVERLAY_IMAGE_REQUEST = 1002
     }
 
     private var appInstallReceiver: BroadcastReceiver? = null
     private val executor = Executors.newSingleThreadExecutor()
+    private val iconExecutor = Executors.newFixedThreadPool(4)
     private val mainHandler = Handler(Looper.getMainLooper())
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -67,6 +69,9 @@ class MainActivity : FlutterActivity() {
         } catch (e: Exception) {
             Log.e(TAG, "Failed to initialize LockManager", e)
         }
+
+        // Proactively pre-warm the app cache
+        executor.execute { getInstalledApps() }
     }
 
     private fun sanitizePreferences() {
@@ -141,8 +146,11 @@ class MainActivity : FlutterActivity() {
                 "launchApp" -> {
                     val packageName = call.argument<String>("packageName")
                     if (packageName != null) {
-                        launchApp(packageName)
-                        result.success(null)
+                        if (launchApp(packageName)) {
+                            result.success(null)
+                        } else {
+                            result.error("APP_NOT_FOUND", "Application not found", null)
+                        }
                     } else {
                         result.error("INVALID", "Package name is null", null)
                     }
@@ -162,6 +170,31 @@ class MainActivity : FlutterActivity() {
                 "getWallpaperPath" -> {
                     val prefs = getSharedPreferences("launcher_prefs", Context.MODE_PRIVATE)
                     result.success(prefs.getString("wallpaper_path", null))
+                }
+
+                "pickOverlayImage" -> {
+                    try {
+                        val intent = Intent(Intent.ACTION_PICK)
+                        intent.type = "image/*"
+                        startActivityForResult(intent, PICK_OVERLAY_IMAGE_REQUEST)
+                        result.success(null)
+                    } catch (e: Exception) {
+                        result.error("UNAVAILABLE", "Image picker not found", e.message)
+                    }
+                }
+
+                "getOverlayImagePath" -> {
+                    val prefs = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+                    result.success(prefs.getString("flutter.overlay_image_path", null))
+                }
+
+                "clearOverlayImage" -> {
+                    val prefs = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+                    prefs.edit().remove("flutter.overlay_image_path").apply()
+                    // Delete the file if it exists
+                    val imageFile = File(filesDir, "overlay_image")
+                    if (imageFile.exists()) imageFile.delete()
+                    result.success(null)
                 }
 
                 "openHomeSettings" -> {
@@ -258,22 +291,19 @@ class MainActivity : FlutterActivity() {
                 }
 
                 "checkAccessibilityPermission" -> {
-                    result.success(isAccessibilityServiceEnabled(ArcadeAccessibilityService::class.java))
+                    result.success(ArcadeUtils.isAccessibilityServiceEnabled(this))
                 }
 
                 "checkBatteryOptimizationExempt" -> {
-                    result.success(isBatteryOptimizationExempt())
+                    result.success(ArcadeUtils.isBatteryOptimizationExempt(this))
                 }
 
                 "checkDeviceAdminEnabled" -> {
-                    val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
-                    val componentName = ComponentName(this, MyDeviceAdminReceiver::class.java)
-                    result.success(dpm.isAdminActive(componentName))
+                    result.success(ArcadeUtils.isAdminActive(this))
                 }
 
                 "isDeviceOwner" -> {
-                    val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
-                    result.success(dpm.isDeviceOwnerApp(packageName))
+                    result.success(ArcadeUtils.isDeviceOwner(this))
                 }
 
                 "startLockTask" -> {
@@ -358,9 +388,16 @@ class MainActivity : FlutterActivity() {
                 }
 
                 // Update locked apps list
-                "updateLockedApps" -> {
-                    val apps = call.argument<List<String>>("apps") ?: emptyList()
-                    LockManager.updateLockedApps(apps)
+                "setLockedApps" -> {
+                    val packages = call.argument<List<String>>("packages") ?: emptyList()
+                    LockManager.updateLockedApps(packages)
+                    result.success(null)
+                }
+
+                // Set session timeout
+                "setSessionTimeout" -> {
+                    val seconds = call.argument<Int>("seconds") ?: 30
+                    LockManager.setSessionTimeout(seconds)
                     result.success(null)
                 }
 
@@ -376,16 +413,6 @@ class MainActivity : FlutterActivity() {
                 // Clear all authorizations
                 "clearAllAuthorizations" -> {
                     LockManager.clearAllAuthorizations()
-                    result.success(null)
-                }
-
-                // Revoke authorization (placeholder)
-                "revokeAuthorization" -> {
-                    result.success(null)
-                }
-
-                // Set session timeout (placeholder)
-                "setSessionTimeout" -> {
                     result.success(null)
                 }
 
@@ -415,60 +442,86 @@ class MainActivity : FlutterActivity() {
     // ============ HELPER METHODS ============
 
     private val appCache = ArrayList<Map<String, Any>>()
-    private var isCacheValid = false
+    @Volatile private var isCacheValid = false
 
     private fun getInstalledApps(): List<Map<String, Any>> {
-        if (isCacheValid && appCache.isNotEmpty()) {
-            return appCache
+        if (isCacheValid) {
+            synchronized(appCache) {
+                if (appCache.isNotEmpty()) {
+                    Log.d(TAG, "Returning cached app list (${appCache.size} apps)")
+                    return ArrayList(appCache)
+                }
+            }
         }
 
+        Log.d(TAG, "Refreshing installed apps list...")
         val apps = ArrayList<Map<String, Any>>()
         
         try {
             val pm = packageManager
             val intent = Intent(Intent.ACTION_MAIN, null)
             intent.addCategory(Intent.CATEGORY_LAUNCHER)
-            val activities = pm.queryIntentActivities(intent, 0)
+            
+            // Optimization: Query only once
+            val activities = pm.queryIntentActivities(intent, PackageManager.GET_META_DATA)
+            Log.d(TAG, "Found ${activities.size} activities")
 
             val iconDir = File(cacheDir, "icons_hd")
             if (!iconDir.exists()) iconDir.mkdirs()
 
+            val latch = java.util.concurrent.CountDownLatch(activities.size)
+
             for (resolveInfo in activities) {
-                try {
-                    val activityInfo = resolveInfo.activityInfo
-                    if (activityInfo.packageName == context.packageName) continue
-
-                    val name = resolveInfo.loadLabel(pm).toString()
-                    val packageName = activityInfo.packageName
-
-                    val iconFile = File(iconDir, "$packageName.png")
-                    if (!iconFile.exists()) {
-                        val iconDrawable = resolveInfo.loadIcon(pm)
-                        saveIconToFile(iconDrawable, iconFile)
-                    }
-
-                    val appMap = HashMap<String, Any>()
-                    appMap["name"] = name
-                    appMap["packageName"] = packageName
-                    appMap["iconPath"] = iconFile.absolutePath
-                    apps.add(appMap)
-                } catch (e: Throwable) {
-                    Log.e(TAG, "Error processing app: ${resolveInfo.activityInfo?.packageName}", e)
+                val activityInfo = resolveInfo.activityInfo
+                if (activityInfo.packageName == packageName) {
+                    latch.countDown()
+                    continue
                 }
+
+                val packageName = activityInfo.packageName
+                val name = resolveInfo.loadLabel(pm).toString()
+                val iconFile = File(iconDir, "$packageName.png")
+
+                // Process icon in parallel if not exists
+                if (!iconFile.exists()) {
+                    iconExecutor.execute {
+                        try {
+                            val iconDrawable = resolveInfo.loadIcon(pm)
+                            saveIconToFile(iconDrawable, iconFile)
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Failed to save icon for $packageName", e)
+                        } finally {
+                            latch.countDown()
+                        }
+                    }
+                } else {
+                    latch.countDown()
+                }
+
+                val appMap = HashMap<String, Any>()
+                appMap["name"] = name
+                appMap["packageName"] = packageName
+                appMap["iconPath"] = iconFile.absolutePath
+                apps.add(appMap)
             }
+            
+            // Wait for icons to be processed (optional, but ensures they appear on first load)
+            // Timeout after 2 seconds to not block UI forever
+            latch.await(2, java.util.concurrent.TimeUnit.SECONDS)
             
             synchronized(appCache) {
                 appCache.clear()
                 appCache.addAll(apps)
                 isCacheValid = true
             }
+            Log.d(TAG, "App list refreshed: ${apps.size} apps")
         } catch (e: Throwable) {
             Log.e(TAG, "Error querying installed apps", e)
         }
         return apps
     }
 
-    private fun launchApp(packageName: String) {
+    private fun launchApp(packageName: String): Boolean {
         // IMPORTANT: Authorize the app via LockManager BEFORE launching
         // This prevents the lock screen from immediately appearing
         LockManager.authorizeApp(packageName)
@@ -477,40 +530,32 @@ class MainActivity : FlutterActivity() {
         if (launchIntent != null) {
             launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             startActivity(launchIntent)
-        }
-    }
-
-    private fun isBatteryOptimizationExempt(): Boolean {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
-            return pm.isIgnoringBatteryOptimizations(packageName)
-        }
-        return true
-    }
-
-    private fun isAccessibilityServiceEnabled(serviceClass: Class<out AccessibilityService>): Boolean {
-        val expectedComponentName = ComponentName(this, serviceClass)
-        val enabledServicesSetting = Settings.Secure.getString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES) ?: return false
-        val colonSplitter = TextUtils.SimpleStringSplitter(':')
-        colonSplitter.setString(enabledServicesSetting)
-        while (colonSplitter.hasNext()) {
-            val componentNameString = colonSplitter.next()
-            val enabledComponent = ComponentName.unflattenFromString(componentNameString)
-            if (enabledComponent != null && enabledComponent == expectedComponentName) return true
+            return true
         }
         return false
     }
 
     private fun saveIconToFile(drawable: Drawable, file: File) {
         try {
-            // Increase icon size for HD quality (e.g., 256x256 or higher if source allows)
+            // Optimal HD size
             val size = 256
+            
+            // Use intrinsic dimensions if valid, otherwise fallback to default
             val width = if (drawable.intrinsicWidth > 0) drawable.intrinsicWidth else size
             val height = if (drawable.intrinsicHeight > 0) drawable.intrinsicHeight else size
             
-            // Use optimal dimensions ensuring at least HD size
-            val finalWidth = width.coerceAtLeast(size)
-            val finalHeight = height.coerceAtLeast(size)
+            // Scaled dimensions to maintain aspect ratio while meeting minimum quality
+            val ratio = width.toFloat() / height.toFloat()
+            val finalWidth: Int
+            val finalHeight: Int
+            
+            if (width > height) {
+                finalWidth = size.coerceAtLeast(width)
+                finalHeight = (finalWidth / ratio).toInt()
+            } else {
+                finalHeight = size.coerceAtLeast(height)
+                finalWidth = (finalHeight * ratio).toInt()
+            }
 
             val bitmap = Bitmap.createBitmap(finalWidth, finalHeight, Bitmap.Config.ARGB_8888)
             val canvas = Canvas(bitmap)
@@ -519,13 +564,16 @@ class MainActivity : FlutterActivity() {
             drawable.draw(canvas)
 
             FileOutputStream(file).use { out ->
-                // Compress at max quality
+                // Compress as PNG at max quality (lossless)
                 bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
             }
+            // Free memory explicitly
+            bitmap.recycle()
         } catch (e: Exception) {
             Log.e(TAG, "Failed to save icon", e)
         }
     }
+
 
     private fun registerAppInstallReceiver(flutterEngine: FlutterEngine) {
         appInstallReceiver = object : BroadcastReceiver() {
@@ -597,10 +645,47 @@ class MainActivity : FlutterActivity() {
                 }
             }
         }
+
+        if (requestCode == PICK_OVERLAY_IMAGE_REQUEST && resultCode == RESULT_OK) {
+            data?.data?.let { uri ->
+                try {
+                    val inputStream = contentResolver.openInputStream(uri)
+                    // Determine file extension from MIME type
+                    val mimeType = contentResolver.getType(uri)
+                    val extension = when {
+                        mimeType?.contains("gif") == true -> "gif"
+                        mimeType?.contains("png") == true -> "png"
+                        else -> "jpg"
+                    }
+                    val overlayFile = File(filesDir, "overlay_image.$extension")
+                    val outputStream = FileOutputStream(overlayFile)
+
+                    inputStream?.use { input ->
+                        outputStream.use { output ->
+                            input.copyTo(output)
+                        }
+                    }
+
+                    // Store in Flutter SharedPreferences
+                    val prefs = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+                    prefs.edit().putString("flutter.overlay_image_path", overlayFile.absolutePath).apply()
+
+                    flutterEngine?.dartExecutor?.binaryMessenger?.let { messenger ->
+                        MethodChannel(messenger, CHANNEL_APPS).invokeMethod("overlayImageChanged", null)
+                    }
+
+                    Log.d(TAG, "Overlay image saved: ${overlayFile.absolutePath}")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to save overlay image", e)
+                }
+            }
+        }
     }
 
     override fun onResume() {
         super.onResume()
+        // Invalidate cache to force refresh on return (handles external installs)
+        isCacheValid = false
         // Reload lock manager settings in case they changed
         LockManager.reload()
     }

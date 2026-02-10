@@ -24,6 +24,7 @@ class PrefKeys {
   static const String recentAppsData = 'recent_apps_data';
   static const String appOrder = 'app_order';
   static const String appBackgrounds = 'app_backgrounds';
+  static const String appListCache = 'app_list_cache';
 
   // Default Values
   static const int defaultGridColumns = 3;

@@ -8,6 +8,7 @@ import 'services/launcher_service.dart';
 import 'services/safe_prefs.dart';
 import 'app_lifecycle_observer.dart';
 import 'widgets/grid_pattern_painter.dart';
+import 'package:arcade_launcher/widgets/settings/permission_tile.dart';
 
 class NodeSecurityPage extends StatefulWidget {
   const NodeSecurityPage({super.key});
@@ -660,14 +661,18 @@ class _NodeSecurityPageState extends State<NodeSecurityPage> {
             children: [
               Icon(
                 allEnabled ? Icons.verified_user : Icons.security,
-                color: allEnabled ? const Color(0xFF00FF9D) : const Color(0xFF9D4EDD),
+                color: allEnabled
+                    ? const Color(0xFF00FF9D)
+                    : const Color(0xFF9D4EDD),
                 size: 20,
               ),
               const SizedBox(width: 8),
               Text(
                 'SYSTEM PERMISSIONS',
                 style: TextStyle(
-                  color: allEnabled ? const Color(0xFF00FF9D) : const Color(0xFF9D4EDD),
+                  color: allEnabled
+                      ? const Color(0xFF00FF9D)
+                      : const Color(0xFF9D4EDD),
                   fontSize: 12,
                   fontWeight: FontWeight.bold,
                   letterSpacing: 2,
@@ -685,7 +690,9 @@ class _NodeSecurityPageState extends State<NodeSecurityPage> {
                 child: Text(
                   '$_permissionCount/4',
                   style: TextStyle(
-                    color: allEnabled ? const Color(0xFF00FF9D) : const Color(0xFF9D4EDD),
+                    color: allEnabled
+                        ? const Color(0xFF00FF9D)
+                        : const Color(0xFF9D4EDD),
                     fontSize: 11,
                     fontWeight: FontWeight.bold,
                   ),
@@ -694,102 +701,38 @@ class _NodeSecurityPageState extends State<NodeSecurityPage> {
             ],
           ),
           const SizedBox(height: 16),
-          _buildPermissionRow(
-            'Overlay Permission',
-            'Lock screen display',
-            Icons.layers_outlined,
-            _overlayEnabled,
-            () => _launcherService.openOverlaySettings(),
+          PermissionTile(
+            title: 'OVERLAY PERMISSION',
+            subtitle: 'Lock screen display',
+            icon: Icons.layers_outlined,
+            isEnabled: _overlayEnabled,
+            onTap: () => _launcherService.openOverlaySettings(),
           ),
           const SizedBox(height: 8),
-          _buildPermissionRow(
-            'Accessibility Service',
-            'System UI blocking',
-            Icons.accessibility_new,
-            _accessibilityEnabled,
-            () => _launcherService.openAccessibilitySettings(),
+          PermissionTile(
+            title: 'ACCESSIBILITY SERVICE',
+            subtitle: 'System UI blocking',
+            icon: Icons.accessibility_new,
+            isEnabled: _accessibilityEnabled,
+            onTap: () => _launcherService.openAccessibilitySettings(),
           ),
           const SizedBox(height: 8),
-          _buildPermissionRow(
-            'Device Admin',
-            'Screen lock on timeout',
-            Icons.admin_panel_settings_outlined,
-            _deviceAdminEnabled,
-            () => _launcherService.openDeviceAdminSettings(),
+          PermissionTile(
+            title: 'DEVICE ADMIN',
+            subtitle: 'Screen lock on timeout',
+            icon: Icons.admin_panel_settings_outlined,
+            isEnabled: _deviceAdminEnabled,
+            onTap: () => _launcherService.openDeviceAdminSettings(),
           ),
           const SizedBox(height: 8),
-          _buildPermissionRow(
-            'Battery Optimization',
-            'Background operation',
-            Icons.battery_saver,
-            _batteryOptimizationExempt,
-            () => _launcherService.openBatteryOptimizationSettings(),
+          PermissionTile(
+            title: 'BATTERY OPTIMIZATION',
+            subtitle: 'Background operation',
+            icon: Icons.battery_saver,
+            isEnabled: _batteryOptimizationExempt,
+            onTap: () => _launcherService.openBatteryOptimizationSettings(),
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _buildPermissionRow(
-      String title, String description, IconData icon, bool isGranted, VoidCallback onTap) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        decoration: BoxDecoration(
-          color: const Color(0xFF05050A).withOpacity(0.5),
-          borderRadius: BorderRadius.circular(4),
-          border: Border.all(
-              color: isGranted
-                  ? const Color(0xFF00FF9D).withOpacity(0.3)
-                  : const Color(0xFFFF6B6B).withOpacity(0.3)),
-        ),
-        child: Row(
-          children: [
-            Icon(
-              icon,
-              color: isGranted ? const Color(0xFF00FF9D) : Colors.white54,
-              size: 20,
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: TextStyle(
-                      color: isGranted ? const Color(0xFF00FF9D) : Colors.white,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 12,
-                    ),
-                  ),
-                  Text(
-                    description,
-                    style: const TextStyle(color: Colors.white38, fontSize: 10),
-                  ),
-                ],
-              ),
-            ),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              decoration: BoxDecoration(
-                color: isGranted
-                    ? const Color(0xFF00FF9D).withOpacity(0.1)
-                    : const Color(0xFFFF6B6B).withOpacity(0.1),
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: Text(
-                isGranted ? 'ON' : 'OFF',
-                style: TextStyle(
-                  color: isGranted ? const Color(0xFF00FF9D) : const Color(0xFFFF6B6B),
-                  fontSize: 9,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }

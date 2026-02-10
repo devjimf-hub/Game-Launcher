@@ -36,8 +36,7 @@ class ArcadeAccessibilityService : AccessibilityService() {
             addAction(ACTION_BLOCK_TOUCHES)
             addAction(ACTION_UNBLOCK_TOUCHES)
         }
-        // Register with appropriate flags for Android 13+ if target SDK is high, 
-        // but for now simple registration.
+        
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
              registerReceiver(blockReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
         } else {
@@ -50,7 +49,6 @@ class ArcadeAccessibilityService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         // CRITICAL: When service is first enabled, ensure we start in a clean state
-        // Remove any existing blocker and reset the OverlayService flag
         removeTouchBlocker()
         OverlayService.isOverlayVisible = false
         android.util.Log.d("ArcadeAccessibility", "Service connected - state reset, blocker removed")
@@ -83,38 +81,21 @@ class ArcadeAccessibilityService : AccessibilityService() {
     }
 
     private fun addTouchBlocker() {
-        android.util.Log.d("ArcadeAccessibility", "addTouchBlocker called")
-        
-        if (touchBlockerView != null) {
-            android.util.Log.d("ArcadeAccessibility", "Blocker already exists, ignoring")
-            return
-        }
+        if (touchBlockerView != null) return
         
         // Safety: Only block if OverlayService says it's visible AND we are NOT charging
         val overlayVisible = OverlayService.isOverlayVisible
-        android.util.Log.d("ArcadeAccessibility", "OverlayService.isOverlayVisible = $overlayVisible")
+        val charging = ArcadeUtils.isDeviceCharging(this)
         
-        if (!overlayVisible) {
-            android.util.Log.d("ArcadeAccessibility", "Blocking ignored: Overlay not visible")
+        android.util.Log.d("ArcadeAccessibility", "addTouchBlocker check: overlayVisible=$overlayVisible, charging=$charging")
+        
+        if (!overlayVisible || charging) {
             return
         }
-
-        val charging = isCurrentlyCharging()
-        android.util.Log.d("ArcadeAccessibility", "isCurrentlyCharging() = $charging")
-        
-        if (charging) {
-            android.util.Log.d("ArcadeAccessibility", "Blocking ignored: Device is charging")
-            return
-        }
-        
-        android.util.Log.d("ArcadeAccessibility", "All checks passed - ADDING TOUCH BLOCKER")
 
         touchBlockerView = FrameLayout(this).apply {
             setBackgroundColor(Color.TRANSPARENT)
-            
-            // Block all touches - no emergency unlock
             setOnTouchListener { _, _ -> true }
-            
             isFocusable = true
             isClickable = true
         }
@@ -132,57 +113,35 @@ class ArcadeAccessibilityService : AccessibilityService() {
             PixelFormat.TRANSLUCENT
         )
         
-        // Extend into display cutout areas on Android P+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             layoutParams.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
         }
         
-        // Position at top-left and cover entire screen including system bars
         layoutParams.gravity = Gravity.TOP or Gravity.START
         layoutParams.x = 0
         layoutParams.y = 0
-        layoutParams.width = WindowManager.LayoutParams.MATCH_PARENT
-        layoutParams.height = WindowManager.LayoutParams.MATCH_PARENT
         
-        // On Android Q+, exclude system gesture areas to prevent swipe-up/back gestures
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             touchBlockerView?.systemGestureExclusionRects = listOf(
-                android.graphics.Rect(0, 0, 10000, 10000) // Exclude entire screen from system gestures
+                android.graphics.Rect(0, 0, 10000, 10000)
             )
         }
         
-        android.util.Log.d("ArcadeAccessibility", "Adding touch blocker with full system UI coverage")
-        
         try {
             windowManager.addView(touchBlockerView, layoutParams)
+            android.util.Log.d("ArcadeAccessibility", "Touch blocker added")
         } catch (e: Exception) {
-            e.printStackTrace()
+            android.util.Log.e("ArcadeAccessibility", "Failed to add touch blocker: ${e.message}")
         }
-    }
-
-    private fun isCurrentlyCharging(): Boolean {
-        val batteryStatus: Intent? = IntentFilter(Intent.ACTION_BATTERY_CHANGED).let { iFilter ->
-            registerReceiver(null, iFilter)
-        }
-        val status: Int = batteryStatus?.getIntExtra(android.os.BatteryManager.EXTRA_STATUS, -1) ?: -1
-        val plugType: Int = batteryStatus?.getIntExtra(android.os.BatteryManager.EXTRA_PLUGGED, -1) ?: -1
-        
-        val isCharging = status == android.os.BatteryManager.BATTERY_STATUS_CHARGING || 
-               status == android.os.BatteryManager.BATTERY_STATUS_FULL ||
-               plugType == android.os.BatteryManager.BATTERY_PLUGGED_AC || 
-               plugType == android.os.BatteryManager.BATTERY_PLUGGED_USB || 
-               plugType == android.os.BatteryManager.BATTERY_PLUGGED_WIRELESS
-        
-        android.util.Log.d("ArcadeAccessibility", "Battery check: status=$status, plugType=$plugType, isCharging=$isCharging")
-        return isCharging
     }
 
     private fun removeTouchBlocker() {
         touchBlockerView?.let {
             try {
                 windowManager.removeView(it)
+                android.util.Log.d("ArcadeAccessibility", "Touch blocker removed")
             } catch (e: Exception) {
-                e.printStackTrace()
+                android.util.Log.e("ArcadeAccessibility", "Failed to remove touch blocker: ${e.message}")
             }
             touchBlockerView = null
         }

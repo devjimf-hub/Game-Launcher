@@ -1,7 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:arcade_launcher/onboarding_page.dart';
@@ -11,6 +13,7 @@ import 'package:arcade_launcher/models/launcher_settings.dart';
 import 'package:arcade_launcher/constants/pref_keys.dart';
 import 'package:arcade_launcher/utils/app_sorter.dart';
 import 'package:arcade_launcher/services/launcher_service.dart';
+import 'package:arcade_launcher/utils/smooth_scroll_physics.dart';
 import 'package:arcade_launcher/services/safe_prefs.dart';
 import 'package:arcade_launcher/services/app_background_service.dart';
 import 'package:arcade_launcher/app_lifecycle_observer.dart';
@@ -19,6 +22,8 @@ import 'package:arcade_launcher/widgets/glass_container.dart';
 import 'package:arcade_launcher/widgets/grid_pattern_painter.dart';
 import 'package:arcade_launcher/widgets/featured_section.dart';
 import 'package:arcade_launcher/widgets/game_card_small.dart';
+import 'package:arcade_launcher/logic/app_data_processor.dart';
+import 'package:arcade_launcher/widgets/popups/pin_verification_dialog.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -87,7 +92,8 @@ class _InitializerState extends State<Initializer> {
 
   void _checkStatus() async {
     final bool complete = await SafePrefs.getBool(PrefKeys.onboardingComplete);
-    await Future.delayed(const Duration(milliseconds: 500));
+    // Reduced delay for faster perceived startup
+    await Future.delayed(const Duration(milliseconds: 200));
     if (mounted) {
       if (complete) {
         Navigator.pushReplacementNamed(context, '/home');
@@ -157,7 +163,9 @@ class _ArcadeLauncherHomeState extends State<ArcadeLauncherHome> {
   @override
   void initState() {
     super.initState();
-    _lifecycleObserver = AppLifecycleObserver(onResume: _loadApps);
+    _lifecycleObserver = AppLifecycleObserver(
+      onResume: () => _loadApps(force: true, showLoading: false),
+    );
     WidgetsBinding.instance.addObserver(_lifecycleObserver);
 
     _launcherService.setMethodCallHandler((call) async {
@@ -177,7 +185,8 @@ class _ArcadeLauncherHomeState extends State<ArcadeLauncherHome> {
 
   Future<void> _checkAndStartArcadeMode() async {
     // Check if Arcade Mode was previously enabled
-    final arcadeModeEnabled = await SafePrefs.getBool(PrefKeys.arcadeModeEnabled);
+    final arcadeModeEnabled =
+        await SafePrefs.getBool(PrefKeys.arcadeModeEnabled);
     if (arcadeModeEnabled) {
       // Ensure the OverlayService is running
       try {
@@ -205,17 +214,42 @@ class _ArcadeLauncherHomeState extends State<ArcadeLauncherHome> {
     }
     _lastLoadTime = now;
 
-    // Only show loading indicator if explicitly requested and we don't have apps yet
-    if (showLoading && _filteredApps.isEmpty && _cachedApps == null) {
-      setState(() => _isLoading = true);
-    }
+    List<AppInfo> apps = [];
 
-    List<AppInfo> apps;
-    if (_cachedApps != null && !force) {
+    // Check in-memory cache first if not forced
+    if (!force && _cachedApps != null) {
       apps = _cachedApps!;
     } else {
-      apps = await _launcherService.getApps();
-      _cachedApps = apps;
+      // 1. Try to load from persistent cache for instant display (only if memory cache empty)
+      if (_cachedApps == null) {
+        final cachedJson = await SafePrefs.getString(PrefKeys.appListCache);
+        if (cachedJson != null) {
+          final cached =
+              await AppDataProcessor.parseAppListJsonBackground(cachedJson);
+          if (cached.isNotEmpty) {
+            setState(() {
+              apps = cached;
+              _cachedApps = apps;
+              _isLoading = false;
+            });
+          }
+        }
+      }
+
+      // 2. Fetch fresh from native
+      final freshApps = await _launcherService.getApps();
+      if (freshApps.isNotEmpty) {
+        apps = freshApps;
+        _cachedApps = apps;
+        // Update persistent cache
+        // Update persistent cache
+        final jsonToCache =
+            await AppDataProcessor.encodeAppListJsonBackground(apps);
+        await SafePrefs.setString(PrefKeys.appListCache, jsonToCache);
+      } else if (apps.isEmpty) {
+        // If native return empty (error?), keep showing cached if we have it
+        debugPrint("Sub-optimal: Native returned 0 apps.");
+      }
     }
 
     // Batch load settings and app data in parallel for better performance
@@ -233,11 +267,7 @@ class _ArcadeLauncherHomeState extends State<ArcadeLauncherHome> {
 
     List<Map<String, dynamic>> recents = [];
     if (recentsData != null) {
-      try {
-        recents = List<Map<String, dynamic>>.from(jsonDecode(recentsData));
-      } catch (e) {
-        debugPrint("Error parsing recents: $e");
-      }
+      recents = await AppDataProcessor.parseRecentsJsonBackground(recentsData);
     }
 
     final filtered =
@@ -326,6 +356,15 @@ class _ArcadeLauncherHomeState extends State<ArcadeLauncherHome> {
 
           _isLoading = false;
         });
+
+        // Pre-cache icons for smoother scrolling
+        for (var app in filtered) {
+          if (app.iconPath != null) {
+            precacheImage(FileImage(File(app.iconPath!)), context);
+          } else if (app.iconBytes != null) {
+            precacheImage(MemoryImage(app.iconBytes!), context);
+          }
+        }
       }
     }
   }
@@ -424,9 +463,7 @@ class _ArcadeLauncherHomeState extends State<ArcadeLauncherHome> {
     List<Map<String, dynamic>> recents = [];
     final recentsData = await SafePrefs.getString(PrefKeys.recentAppsData);
     if (recentsData != null) {
-      try {
-        recents = List<Map<String, dynamic>>.from(jsonDecode(recentsData));
-      } catch (_) {}
+      recents = await AppDataProcessor.parseRecentsJsonBackground(recentsData);
     }
 
     final now = DateTime.now().millisecondsSinceEpoch;
@@ -454,14 +491,39 @@ class _ArcadeLauncherHomeState extends State<ArcadeLauncherHome> {
 
     await SafePrefs.setString(PrefKeys.recentAppsData, jsonEncode(recents));
 
-    try {
-      await _launcherService.launchApp(app.packageName);
-    } catch (e) {
-      debugPrint("Error launching app: $e");
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to launch: $e')),
-        );
+    final result = await _launcherService.launchApp(app.packageName);
+    if (!result.success) {
+      if (result.errorCode == 'APP_NOT_FOUND') {
+        if (mounted) {
+          setState(() {
+            _filteredApps.removeWhere((a) => a.packageName == app.packageName);
+            _recentAppsStats.removeWhere(
+                (r) => (r['app'] as AppInfo).packageName == app.packageName);
+          });
+
+          // Update cache to prevent it from reappearing on restart
+          // Update cache to prevent it from reappearing on restart
+          final jsonToCache =
+              await AppDataProcessor.encodeAppListJsonBackground(_filteredApps);
+          await SafePrefs.setString(PrefKeys.appListCache, jsonToCache);
+
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('${app.name} removed (not installed).'),
+              duration: const Duration(seconds: 2),
+            ),
+          );
+
+          // Sync with system
+          _loadApps(force: true, showLoading: false);
+        }
+      } else {
+        debugPrint("Error launching app: ${result.error}");
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Failed to launch: ${result.error}')),
+          );
+        }
       }
     }
 
@@ -510,12 +572,6 @@ class _ArcadeLauncherHomeState extends State<ArcadeLauncherHome> {
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoading) {
-      return const Scaffold(
-        body: Center(child: GamingLoadingIndicator()),
-      );
-    }
-
     return PopScope(
       canPop: false,
       child: Scaffold(
@@ -534,31 +590,49 @@ class _ArcadeLauncherHomeState extends State<ArcadeLauncherHome> {
                         child: isLandscape
                             ? Row(
                                 children: [
-                                  if (_featuredItem != null)
-                                    Expanded(
-                                      flex: 2,
-                                      child: _buildFeaturedSection(
-                                          _featuredItem!['app'],
-                                          _featuredItem!['stats']),
-                                    ),
+                                  Expanded(
+                                    flex: 2,
+                                    child: _isLoading
+                                        ? const _SkeletonFeatured()
+                                        : (_featuredItem != null
+                                            ? _buildFeaturedSection(
+                                                _featuredItem!['app'],
+                                                _featuredItem!['stats'])
+                                            : const SizedBox.shrink()),
+                                  ),
                                   Expanded(
                                     flex: 3,
-                                    child: _buildContentSection(),
+                                    child: _isLoading
+                                        ? const _SkeletonGrid()
+                                        : _buildContentSection(),
                                   ),
                                 ],
                               )
                             : Column(
                                 children: [
-                                  if (_featuredItem != null)
-                                    SizedBox(
-                                      height: MediaQuery.of(context).size.height *
-                                          0.35,
-                                      child: _buildFeaturedSection(
-                                          _featuredItem!['app'],
-                                          _featuredItem!['stats']),
-                                    ),
+                                  _isLoading
+                                      ? SizedBox(
+                                          height: MediaQuery.of(context)
+                                                  .size
+                                                  .height *
+                                              0.35,
+                                          child: const _SkeletonFeatured(),
+                                        )
+                                      : (_featuredItem != null
+                                          ? SizedBox(
+                                              height: MediaQuery.of(context)
+                                                      .size
+                                                      .height *
+                                                  0.35,
+                                              child: _buildFeaturedSection(
+                                                  _featuredItem!['app'],
+                                                  _featuredItem!['stats']),
+                                            )
+                                          : const SizedBox.shrink()),
                                   Expanded(
-                                    child: _buildContentSection(),
+                                    child: _isLoading
+                                        ? const _SkeletonGrid()
+                                        : _buildContentSection(),
                                   ),
                                 ],
                               ),
@@ -589,55 +663,46 @@ class _ArcadeLauncherHomeState extends State<ArcadeLauncherHome> {
             ),
           ),
         ),
-        Positioned.fill(
-          child: Container(
-            decoration: BoxDecoration(
-              gradient: RadialGradient(
-                center: const Alignment(0.7, -0.3),
-                radius: 1.5,
-                colors: [
-                  const Color(0xFF1E1E3F).withOpacity(0.4),
-                  Colors.transparent,
-                ],
-              ),
-            ),
-          ),
+        const Positioned.fill(
+          child: _BreathingBackground(),
         ),
       ],
     );
   }
 
   Widget _buildTopBar() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
-      child: Row(
-        children: [
-          InkWell(
-            onTap: _handleSettingsAccess,
-            borderRadius: BorderRadius.circular(30),
-            child: GlassContainer(
-              borderRadius: 30,
-              opacity: 0.1,
-              blur: 10,
-              child: const Padding(
-                padding: EdgeInsets.all(8),
-                child:
-                    Icon(Icons.person_outline, color: Colors.white, size: 20),
+    return RepaintBoundary(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
+        child: Row(
+          children: [
+            InkWell(
+              onTap: _handleSettingsAccess,
+              borderRadius: BorderRadius.circular(30),
+              child: GlassContainer(
+                borderRadius: 30,
+                opacity: 0.1,
+                blur: 10,
+                child: const Padding(
+                  padding: EdgeInsets.all(8),
+                  child:
+                      Icon(Icons.person_outline, color: Colors.white, size: 20),
+                ),
               ),
             ),
-          ),
-          const SizedBox(width: 12),
-          // Title Display
-          Text(
-            _launcherTitle.toUpperCase(),
-            style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-                fontSize: 16,
-                letterSpacing: 2.0),
-          ),
-          const Spacer(),
-        ],
+            const SizedBox(width: 12),
+            // Title Display
+            Text(
+              _launcherTitle.toUpperCase(),
+              style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                  letterSpacing: 2.0),
+            ),
+            const Spacer(),
+          ],
+        ),
       ),
     );
   }
@@ -666,9 +731,22 @@ class _ArcadeLauncherHomeState extends State<ArcadeLauncherHome> {
           ),
           const SizedBox(height: 24),
           Expanded(
-            child: _currentTab == 'Recently Played'
-                ? _buildRecentGrid()
-                : _buildLibraryGrid(),
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 400),
+              switchInCurve: Curves.easeOutCubic,
+              switchOutCurve: Curves.easeInCubic,
+              child: _currentTab == 'Recently Played'
+                  ? _buildAppsGrid(
+                      _recentAppsStats.map((e) => e['app'] as AppInfo).toList(),
+                      isRecent: true,
+                      key: const ValueKey('recent_grid'),
+                    )
+                  : _buildAppsGrid(
+                      _filteredApps,
+                      isRecent: false,
+                      key: const ValueKey('library_grid'),
+                    ),
+            ),
           ),
         ],
       ),
@@ -690,7 +768,7 @@ class _ArcadeLauncherHomeState extends State<ArcadeLauncherHome> {
               title,
               style: TextStyle(
                 color: isActive ? Colors.white : Colors.white38,
-                fontSize: 14, // REDUCED FONT SIZE
+                fontSize: 14,
                 fontWeight: FontWeight.bold,
                 letterSpacing: 0.5,
               ),
@@ -718,10 +796,12 @@ class _ArcadeLauncherHomeState extends State<ArcadeLauncherHome> {
     );
   }
 
-  Widget _buildRecentGrid() {
-    if (_recentAppsStats.isEmpty) {
+  Widget _buildAppsGrid(List<AppInfo> apps,
+      {required bool isRecent, Key? key}) {
+    if (isRecent && _recentAppsStats.isEmpty) {
       return Center(
-        child: Text(
+        key: key,
+        child: const Text(
           'No recent activity',
           style: TextStyle(color: Colors.white12, fontSize: 16),
         ),
@@ -729,7 +809,10 @@ class _ArcadeLauncherHomeState extends State<ArcadeLauncherHome> {
     }
 
     return GridView.builder(
-      physics: const BouncingScrollPhysics(),
+      key: key,
+      physics: const SmoothScrollPhysics(),
+      // Pre-calculate items outside viewport for smoother scrolling
+      cacheExtent: 1000,
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount:
             MediaQuery.of(context).orientation == Orientation.landscape
@@ -739,47 +822,222 @@ class _ArcadeLauncherHomeState extends State<ArcadeLauncherHome> {
         crossAxisSpacing: 16,
         childAspectRatio: 0.8,
       ),
-      itemCount: _recentAppsStats.length.clamp(0, 12),
+      itemCount: isRecent ? apps.length.clamp(0, 12) : apps.length,
       itemBuilder: (context, index) {
-        final item = _recentAppsStats[index];
-        return RepaintBoundary(
-          child: _buildGameCardSmall(item['app'],
-              stats: item['stats'], isRecent: true),
+        final app = apps[index];
+        final stats = isRecent ? _recentAppsStats[index]['stats'] : null;
+
+        return GameCardSmall(
+          app: app,
+          stats: stats,
+          isRecent: isRecent,
+          showAppName: _showAppNames,
+          iconScale: _iconScale,
+          index: index,
+          onTap: () => _launchApp(app),
         );
       },
     );
   }
+}
 
-  Widget _buildLibraryGrid() {
-    return GridView.builder(
-      physics: const BouncingScrollPhysics(),
-      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount:
-            MediaQuery.of(context).orientation == Orientation.landscape
-                ? _gridColumns
-                : 3,
-        mainAxisSpacing: 16,
-        crossAxisSpacing: 16,
-        childAspectRatio: 0.8,
+class _BreathingBackground extends StatefulWidget {
+  const _BreathingBackground();
+
+  @override
+  State<_BreathingBackground> createState() => _BreathingBackgroundState();
+}
+
+class _BreathingBackgroundState extends State<_BreathingBackground>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 15),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return RepaintBoundary(
+      child: AnimatedBuilder(
+        animation: _controller,
+        builder: (context, child) {
+          final double offset = math.sin(_controller.value * 2 * math.pi) * 0.1;
+          return Container(
+            decoration: BoxDecoration(
+              gradient: RadialGradient(
+                center: Alignment(0.7 + offset, -0.3 + offset),
+                radius: 1.5 + offset * 0.5,
+                colors: [
+                  const Color(0xFF1E1E3F).withOpacity(0.4),
+                  Colors.transparent,
+                ],
+              ),
+            ),
+          );
+        },
       ),
-      itemCount: _filteredApps.length,
-      itemBuilder: (context, index) {
-        return RepaintBoundary(
-          child: _buildGameCardSmall(_filteredApps[index], isRecent: false),
-        );
-      },
     );
   }
+}
 
-  Widget _buildGameCardSmall(AppInfo app,
-      {Map<String, dynamic>? stats, required bool isRecent}) {
-    return GameCardSmall(
-      app: app,
-      stats: stats,
-      isRecent: isRecent,
-      showAppName: _showAppNames,
-      iconScale: _iconScale,
-      onTap: () => _launchApp(app),
+class _SkeletonFeatured extends StatelessWidget {
+  const _SkeletonFeatured();
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.all(24),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(24),
+        child: Stack(
+          children: [
+            const _ShimmerBox(width: double.infinity, height: double.infinity),
+            Positioned(
+              bottom: 24,
+              left: 24,
+              right: 24,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const _ShimmerBox(width: 200, height: 32),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      const _ShimmerBox(width: 100, height: 16),
+                      const SizedBox(width: 8),
+                      const _ShimmerBox(width: 80, height: 16),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SkeletonGrid extends StatelessWidget {
+  const _SkeletonGrid();
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 24, 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: _ShimmerBox(width: 120, height: 20),
+          ),
+          const SizedBox(height: 24),
+          Expanded(
+            child: GridView.builder(
+              padding: EdgeInsets.zero,
+              physics: const NeverScrollableScrollPhysics(),
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 3,
+                mainAxisSpacing: 16,
+                crossAxisSpacing: 16,
+                childAspectRatio: 0.8,
+              ),
+              itemCount: 8,
+              itemBuilder: (context, index) => Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(20),
+                      child: const _ShimmerBox(
+                        width: double.infinity,
+                        height: double.infinity,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  const _ShimmerBox(width: double.infinity, height: 12),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ShimmerBox extends StatefulWidget {
+  final double width;
+  final double height;
+
+  const _ShimmerBox({
+    required this.width,
+    required this.height,
+  });
+
+  @override
+  State<_ShimmerBox> createState() => _ShimmerBoxState();
+}
+
+class _ShimmerBoxState extends State<_ShimmerBox>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1500),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, child) {
+        return Container(
+          width: widget.width,
+          height: widget.height,
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                Colors.white.withOpacity(0.05),
+                Colors.white.withOpacity(0.12),
+                Colors.white.withOpacity(0.05),
+              ],
+              stops: [
+                0.0,
+                _controller.value,
+                1.0,
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }
