@@ -143,6 +143,18 @@ class MainActivity : FlutterActivity() {
                     }
                 }
 
+                "getLaunchers" -> {
+                    executor.execute {
+                        try {
+                            val launchers = getLauncherApps()
+                            mainHandler.post { result.success(launchers) }
+                        } catch (e: Throwable) {
+                            Log.e(TAG, "Error fetching launchers", e)
+                            mainHandler.post { result.error("FETCH_ERROR", "Failed to load launchers: ${e.message}", null) }
+                        }
+                    }
+                }
+
                 "launchApp" -> {
                     val packageName = call.argument<String>("packageName")
                     if (packageName != null) {
@@ -443,6 +455,29 @@ class MainActivity : FlutterActivity() {
 
     private val appCache = ArrayList<Map<String, Any>>()
     @Volatile private var isCacheValid = false
+
+    private fun getLauncherApps(): List<Map<String, Any>> {
+        val launchers = ArrayList<Map<String, Any>>()
+        try {
+            val pm = packageManager
+            val intent = Intent(Intent.ACTION_MAIN)
+            intent.addCategory(Intent.CATEGORY_HOME)
+            
+            // Query for all activities that can handle HOME category
+            val list = pm.queryIntentActivities(intent, PackageManager.MATCH_DEFAULT_ONLY)
+            
+            for (info in list) {
+                val map = HashMap<String, Any>()
+                map["packageName"] = info.activityInfo.packageName
+                map["name"] = info.loadLabel(pm).toString()
+                launchers.add(map)
+            }
+            Log.d(TAG, "Found ${launchers.size} launcher apps")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error getting launcher apps", e)
+        }
+        return launchers
+    }
 
     private fun getInstalledApps(): List<Map<String, Any>> {
         if (isCacheValid) {

@@ -279,18 +279,6 @@ class OverlayService : Service() {
                 collapseStatusBar()
             }
         }
-
-        hideSystemUiRunnable = object : Runnable {
-            override fun run() {
-                if (overlayView != null) {
-                    collapseStatusBar()
-                    hideSystemUI()
-                    // Adaptive loop: if we are locking, stop. If not, continue.
-                    if (!isLocking) handler.postDelayed(this, 500)
-                }
-            }
-        }
-        handler.post(hideSystemUiRunnable!!)
     }
 
     private fun stopKioskMode() {
