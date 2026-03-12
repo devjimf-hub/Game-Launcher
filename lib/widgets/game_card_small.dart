@@ -217,76 +217,49 @@ class _PressableScale extends StatefulWidget {
   final VoidCallback onTap;
   final int index;
 
-  const _PressableScale(
-      {required this.child, required this.onTap, required this.index});
+  const _PressableScale({
+    required this.child,
+    required this.onTap,
+    required this.index,
+  });
 
   @override
   State<_PressableScale> createState() => _PressableScaleState();
 }
 
 class _PressableScaleState extends State<_PressableScale>
-    with TickerProviderStateMixin {
+    with SingleTickerProviderStateMixin {
   late AnimationController _controller;
-  late AnimationController _entranceController;
   late Animation<double> _scaleAnimation;
-  late Animation<double> _entranceAnimation;
 
   @override
   void initState() {
     super.initState();
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 150),
+      duration: const Duration(milliseconds: 100),
     );
-    _scaleAnimation = Tween<double>(begin: 1.0, end: 0.95).animate(
+    _scaleAnimation = Tween<double>(begin: 1.0, end: 0.96).animate(
       CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
     );
-
-    _entranceController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 600),
-    );
-
-    _entranceAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(
-        parent: _entranceController,
-        curve: Curves.easeOutBack,
-      ),
-    );
-
-    // Staggered entrance based on index
-    Future.delayed(Duration(milliseconds: (widget.index % 12) * 50), () {
-      if (mounted) {
-        _entranceController.forward();
-      }
-    });
   }
 
   @override
   void dispose() {
     _controller.dispose();
-    _entranceController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return ScaleTransition(
-      scale: _entranceAnimation,
-      child: FadeTransition(
-        opacity: _entranceAnimation,
-        child: GestureDetector(
-          onTapDown: (_) => _controller.forward(),
-          onTapUp: (_) => _controller.reverse(),
-          onTapCancel: () => _controller.reverse(),
-          onTap: () {
-            widget.onTap();
-          },
-          child: ScaleTransition(
-            scale: _scaleAnimation,
-            child: widget.child,
-          ),
-        ),
+    return GestureDetector(
+      onTapDown: (_) => _controller.forward(),
+      onTapUp: (_) => _controller.reverse(),
+      onTapCancel: () => _controller.reverse(),
+      onTap: widget.onTap,
+      child: ScaleTransition(
+        scale: _scaleAnimation,
+        child: widget.child,
       ),
     );
   }

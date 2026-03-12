@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -13,7 +12,6 @@ import 'package:arcade_launcher/models/launcher_settings.dart';
 import 'package:arcade_launcher/constants/pref_keys.dart';
 import 'package:arcade_launcher/utils/app_sorter.dart';
 import 'package:arcade_launcher/services/launcher_service.dart';
-import 'package:arcade_launcher/utils/smooth_scroll_physics.dart';
 import 'package:arcade_launcher/services/safe_prefs.dart';
 import 'package:arcade_launcher/services/app_background_service.dart';
 import 'package:arcade_launcher/app_lifecycle_observer.dart';
@@ -395,12 +393,17 @@ class _ArcadeLauncherHomeState extends State<ArcadeLauncherHome> {
           _isLoading = false;
         });
 
-        // Pre-cache icons for smoother scrolling
+        // Pre-cache only the first 20 icons for smoother initial scrolling
+        // without overloading the image cache
+        int preCacheCount = 0;
         for (var app in filtered) {
+          if (preCacheCount >= 20) break;
           if (app.iconPath != null) {
             precacheImage(FileImage(File(app.iconPath!)), context);
+            preCacheCount++;
           } else if (app.iconBytes != null) {
             precacheImage(MemoryImage(app.iconBytes!), context);
+            preCacheCount++;
           }
         }
       }
@@ -819,10 +822,12 @@ class _ArcadeLauncherHomeState extends State<ArcadeLauncherHome> {
                       isRecent: true,
                       key: const ValueKey('recent_grid'),
                     )
-                  : _buildAppsGrid(
-                      _filteredApps,
-                      isRecent: false,
-                      key: const ValueKey('library_grid'),
+                  : RepaintBoundary(
+                      child: _buildAppsGrid(
+                        _filteredApps,
+                        isRecent: false,
+                        key: const ValueKey('library_grid'),
+                      ),
                     ),
             ),
           ),
@@ -888,9 +893,9 @@ class _ArcadeLauncherHomeState extends State<ArcadeLauncherHome> {
 
     return GridView.builder(
       key: key,
-      physics: const SmoothScrollPhysics(),
-      // Pre-calculate items outside viewport for smoother scrolling
-      cacheExtent: 1000,
+      physics: const BouncingScrollPhysics(),
+      // Reduced cache extent to avoid building too many items ahead
+      cacheExtent: 300,
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount:
             MediaQuery.of(context).orientation == Orientation.landscape
@@ -935,7 +940,7 @@ class _BreathingBackgroundState extends State<_BreathingBackground>
     super.initState();
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(seconds: 15),
+      duration: const Duration(seconds: 20), // Slowed down for efficiency
     )..repeat();
   }
 
@@ -951,16 +956,20 @@ class _BreathingBackgroundState extends State<_BreathingBackground>
       child: AnimatedBuilder(
         animation: _controller,
         builder: (context, child) {
-          final double offset = math.sin(_controller.value * 2 * math.pi) * 0.1;
-          return Container(
-            decoration: BoxDecoration(
-              gradient: RadialGradient(
-                center: Alignment(0.7 + offset, -0.3 + offset),
-                radius: 1.5 + offset * 0.5,
-                colors: [
-                  const Color(0xFF1E1E3F).withOpacity(0.4),
-                  Colors.transparent,
-                ],
+          return Center(
+            child: Opacity(
+              opacity: 0.4,
+              child: Container(
+                decoration: const BoxDecoration(
+                  gradient: RadialGradient(
+                    center: Alignment(0.7, -0.3),
+                    radius: 1.5,
+                    colors: [
+                      Color(0xFF1E1E3F),
+                      Colors.transparent,
+                    ],
+                  ),
+                ),
               ),
             ),
           );
