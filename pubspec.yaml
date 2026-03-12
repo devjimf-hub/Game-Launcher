@@ -19,6 +19,7 @@ dependencies:
   google_mobile_ads: ^5.1.0
   local_auth: ^2.2.0
   google_fonts: ^6.3.2
+  battery_plus: ^7.0.0
 
 dev_dependencies:
   flutter_test:

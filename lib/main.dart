@@ -18,6 +18,8 @@ import 'package:arcade_launcher/services/safe_prefs.dart';
 import 'package:arcade_launcher/services/app_background_service.dart';
 import 'package:arcade_launcher/app_lifecycle_observer.dart';
 import 'package:arcade_launcher/widgets/gaming_loading_indicator.dart';
+import 'package:arcade_launcher/services/sales_service.dart';
+import 'package:arcade_launcher/sales_page.dart';
 import 'package:arcade_launcher/widgets/glass_container.dart';
 import 'package:arcade_launcher/widgets/grid_pattern_painter.dart';
 import 'package:arcade_launcher/widgets/featured_section.dart';
@@ -28,6 +30,7 @@ import 'package:arcade_launcher/widgets/popups/pin_verification_dialog.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await AppBackgroundService.init();
+  SalesService.init();
 
   // Pre-warm the app list/icon cache in the background
   LauncherService().getApps();
@@ -71,6 +74,7 @@ class ArcadeLauncherApp extends StatelessWidget {
         '/home': (context) => const ArcadeLauncherHome(),
         '/onboarding': (context) => const OnboardingPage(),
         '/settings': (context) => const SettingsPage(),
+        '/sales': (context) => const SalesPage(),
       },
     );
   }
@@ -159,6 +163,9 @@ class _ArcadeLauncherHomeState extends State<ArcadeLauncherHome> {
       'SECURITY: Do not leave accounts logged in. Always logout after session.';
 
   int _lastLoadTime = 0;
+  String? _wallpaperPath;
+  bool _isWallpaperUrl = false;
+  int _wallpaperKey = 0; // Cache breaker
 
   @override
   void initState() {
@@ -174,13 +181,44 @@ class _ArcadeLauncherHomeState extends State<ArcadeLauncherHome> {
           _loadApps(force: true);
           break;
         case 'wallpaperChanged':
-          setState(() {});
+          _loadWallpaper();
           break;
       }
     });
 
     _loadApps();
+    _loadWallpaper();
     _checkAndStartArcadeMode();
+  }
+
+  Future<void> _loadWallpaper() async {
+    final url = await SafePrefs.getString(PrefKeys.wallpaperUrl);
+    String? path;
+    bool isUrl = false;
+
+    if (url != null && url.isNotEmpty && (url.startsWith('http') || url.startsWith('https'))) {
+      path = url;
+      isUrl = true;
+    } else {
+      path = await _launcherService.getWallpaperPath();
+    }
+
+    if (mounted) {
+      if (path != null) {
+        final provider = isUrl ? NetworkImage(path) : FileImage(File(path)) as ImageProvider;
+        await provider.evict();
+      }
+      setState(() {
+        _wallpaperPath = path;
+        _isWallpaperUrl = isUrl;
+        _wallpaperKey++;
+      });
+      
+      if (path != null) {
+        final provider = isUrl ? NetworkImage(path) : FileImage(File(path)) as ImageProvider;
+        precacheImage(provider, context);
+      }
+    }
   }
 
   Future<void> _checkAndStartArcadeMode() async {
@@ -654,6 +692,30 @@ class _ArcadeLauncherHomeState extends State<ArcadeLauncherHome> {
         Positioned.fill(
           child: Container(color: const Color(0xFF05050A)),
         ),
+        if (_wallpaperPath != null)
+          Positioned.fill(
+            child: _isWallpaperUrl
+                ? Image.network(
+                    _wallpaperPath!,
+                    key: ValueKey('wallpaper_$_wallpaperKey'),
+                    fit: BoxFit.cover,
+                    errorBuilder: (context, error, stackTrace) =>
+                        const SizedBox.shrink(),
+                  )
+                : Image.file(
+                    File(_wallpaperPath!),
+                    key: ValueKey('wallpaper_$_wallpaperKey'),
+                    fit: BoxFit.cover,
+                    errorBuilder: (context, error, stackTrace) =>
+                        const SizedBox.shrink(),
+                  ),
+          ),
+        // Dark overlay to ensure readability
+        Positioned.fill(
+          child: Container(
+            color: Colors.black.withOpacity(_wallpaperPath != null ? 0.3 : 0),
+          ),
+        ),
         Positioned.fill(
           child: RepaintBoundary(
             child: CustomPaint(
@@ -665,6 +727,22 @@ class _ArcadeLauncherHomeState extends State<ArcadeLauncherHome> {
         ),
         const Positioned.fill(
           child: _BreathingBackground(),
+        ),
+        // Gradient overlay for depth
+        Positioned.fill(
+          child: Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Colors.black.withOpacity(0.1),
+                  Colors.transparent,
+                  Colors.black.withOpacity(0.4),
+                ],
+              ),
+            ),
+          ),
         ),
       ],
     );

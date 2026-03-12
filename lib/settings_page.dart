@@ -178,6 +178,39 @@ class _SettingsPageState extends State<SettingsPage>
                     ),
                   ],
                 ),
+                Opacity(
+                  opacity: _arcadeModeEnabled ? 1.0 : 0.5,
+                  child: _buildSettingsCard(
+                    context,
+                    title: 'SALES & ANALYTICS',
+                    icon: Icons.analytics_outlined,
+                    children: [
+                      ListTile(
+                        enabled: _arcadeModeEnabled,
+                        leading: Icon(Icons.payments,
+                            color: _arcadeModeEnabled
+                                ? const Color(0xFF00FF9D)
+                                : Colors.grey),
+                        title: const Text('REVENUE DASHBOARD',
+                            style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 13)),
+                        subtitle: Text(
+                            _arcadeModeEnabled
+                                ? 'View app usage and charging sales'
+                                : 'Enable Arcade Mode to track revenue',
+                            style: const TextStyle(
+                                color: Colors.white54, fontSize: 11)),
+                        onTap: _arcadeModeEnabled
+                            ? () {
+                                Navigator.pushNamed(context, '/sales');
+                              }
+                            : null,
+                      ),
+                    ],
+                  ),
+                ),
                 _buildSettingsCard(
                   context,
                   title: 'VISUAL OVERRIDE',
@@ -195,22 +228,7 @@ class _SettingsPageState extends State<SettingsPage>
                           style: TextStyle(
                               color: Colors.white54,
                               fontSize: 11)), // Reduced font size
-                      onTap: () async {
-                        final messenger = ScaffoldMessenger.of(context);
-                        try {
-                          await _launcherService.changeWallpaper();
-                          messenger.showSnackBar(
-                            const SnackBar(
-                              content: Text('RELOADING ATMOSPHERE...'),
-                              backgroundColor: Color(0xFF00D4FF),
-                            ),
-                          );
-                        } catch (e) {
-                          messenger.showSnackBar(
-                            SnackBar(content: Text('ERROR: $e')),
-                          );
-                        }
-                      },
+                      onTap: _showWallpaperOptions,
                     ),
                     ListTile(
                       leading:
@@ -866,6 +884,146 @@ class _SettingsPageState extends State<SettingsPage>
           ),
           const Divider(height: 1, color: Colors.white10),
           ...children,
+        ],
+      ),
+    );
+  }
+
+  void _showWallpaperOptions() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF16213E),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => Container(
+        padding: const EdgeInsets.symmetric(vertical: 20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                    color: Colors.white24,
+                    borderRadius: BorderRadius.circular(2))),
+            const SizedBox(height: 20),
+            ListTile(
+              leading: const Icon(Icons.image, color: Color(0xFF00D4FF)),
+              title: const Text('GALLERY PICKER',
+                  style: TextStyle(
+                      color: Colors.white, fontWeight: FontWeight.bold)),
+              subtitle: const Text('Select a high-quality local image',
+                  style: TextStyle(color: Colors.white54, fontSize: 11)),
+              onTap: () {
+                Navigator.pop(context);
+                _handlePickerWallpaper();
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.link, color: Color(0xFF00FF9D)),
+              title: const Text('IMAGE URL LINK',
+                  style: TextStyle(
+                      color: Colors.white, fontWeight: FontWeight.bold)),
+              subtitle: const Text('Paste a link from the internet',
+                  style: TextStyle(color: Colors.white54, fontSize: 11)),
+              onTap: () {
+                Navigator.pop(context);
+                _showUrlWallpaperDialog();
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.delete_outline, color: Colors.redAccent),
+              title: const Text('CLEAR WALLPAPER',
+                  style: TextStyle(
+                      color: Colors.redAccent, fontWeight: FontWeight.bold)),
+              onTap: () async {
+                Navigator.pop(context);
+                await SafePrefs.remove(PrefKeys.wallpaperUrl);
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('WALLPAPER RESET')),
+                  );
+                }
+              },
+            ),
+            const SizedBox(height: 10),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _handlePickerWallpaper() async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await SafePrefs.remove(PrefKeys.wallpaperUrl);
+      await _launcherService.changeWallpaper();
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('UPDATE ATMOSPHERE...'),
+          backgroundColor: Color(0xFF00D4FF),
+        ),
+      );
+    } catch (e) {
+      messenger.showSnackBar(
+        SnackBar(content: Text('ERROR: $e')),
+      );
+    }
+  }
+
+  void _showUrlWallpaperDialog() {
+    final controller = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF16213E),
+        title: const Text('WALLPAPER LINK',
+            style: TextStyle(color: Colors.white, letterSpacing: 1, fontSize: 16)),
+        contentPadding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Paste a direct link to an image:',
+                style: TextStyle(color: Colors.white70, fontSize: 12)),
+            const SizedBox(height: 16),
+            TextField(
+              controller: controller,
+              style: const TextStyle(color: Colors.white, fontSize: 14),
+              autofocus: true,
+              decoration: const InputDecoration(
+                hintText: 'https://example.com/image.jpg',
+                hintStyle: TextStyle(color: Colors.white24, fontSize: 13),
+                enabledBorder: UnderlineInputBorder(
+                    borderSide: BorderSide(color: Colors.white24)),
+                focusedBorder: UnderlineInputBorder(
+                    borderSide: BorderSide(color: Color(0xFF00FF9D))),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('CANCEL', style: TextStyle(color: Colors.grey)),
+          ),
+          TextButton(
+            onPressed: () async {
+              final url = controller.text.trim();
+              if (url.isNotEmpty) {
+                await SafePrefs.setString(PrefKeys.wallpaperUrl, url);
+                if (mounted) {
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('ATMOSPHERE LINK SYNCED')),
+                  );
+                }
+              }
+            },
+            child:
+                const Text('APPLY', style: TextStyle(color: Color(0xFF00FF9D))),
+          ),
         ],
       ),
     );

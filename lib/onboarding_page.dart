@@ -21,6 +21,10 @@ class _OnboardingPageState extends State<OnboardingPage>
   bool _accessibilityGranted = false;
   bool _deviceAdminGranted = false;
   bool _batteryOptimizationExempt = false;
+  
+  // Settings states
+  bool _arcadeModeEnabled = false;
+  int _minsPerPeso = PrefKeys.defaultMinsPerPeso;
 
   @override
   void initState() {
@@ -48,6 +52,8 @@ class _OnboardingPageState extends State<OnboardingPage>
     final accessibility = await _launcherService.checkAccessibilityPermission();
     final deviceAdmin = await _launcherService.checkDeviceAdminEnabled();
     final batteryExempt = await _launcherService.checkBatteryOptimizationExempt();
+    final arcadeMode = await SafePrefs.getBool(PrefKeys.arcadeModeEnabled);
+    final mins = await SafePrefs.getInt(PrefKeys.minsPerPeso, defaultValue: PrefKeys.defaultMinsPerPeso);
 
     if (mounted) {
       setState(() {
@@ -56,12 +62,10 @@ class _OnboardingPageState extends State<OnboardingPage>
         _accessibilityGranted = accessibility;
         _deviceAdminGranted = deviceAdmin;
         _batteryOptimizationExempt = batteryExempt;
+        _arcadeModeEnabled = arcadeMode;
+        _minsPerPeso = mins;
       });
 
-      // Automatically proceed if all critical permissions are granted
-      if (_allCriticalPermissionsGranted) {
-        _finishOnboarding();
-      }
     }
   }
 
@@ -82,8 +86,12 @@ class _OnboardingPageState extends State<OnboardingPage>
     if (_accessibilityGranted) count++;
     if (_deviceAdminGranted) count++;
     if (_batteryOptimizationExempt) count++;
+    if (_arcadeModeEnabled) count++;
+    count++; // Revenue rate is always "done" as it has a default
     return count;
   }
+  
+  int get _totalSteps => 7;
 
   Future<void> _finishOnboarding() async {
     await SafePrefs.setBool(PrefKeys.onboardingComplete, true);
@@ -198,6 +206,50 @@ class _OnboardingPageState extends State<OnboardingPage>
                           },
                         ),
 
+                        const SizedBox(height: 24),
+
+                        // Initial Configuration Section
+                        _buildSectionHeader('INITIAL CONFIGURATION', const Color(0xFF00FF9D)),
+                        const SizedBox(height: 12),
+                        _buildConfigStep(
+                          title: 'ARCADE MODE',
+                          description: 'Enable system-wide lockdown and revenue tracking.',
+                          isActive: _arcadeModeEnabled,
+                          icon: Icons.sports_esports_outlined,
+                          onToggle: (val) async {
+                            await SafePrefs.setBool(PrefKeys.arcadeModeEnabled, val);
+                            setState(() => _arcadeModeEnabled = val);
+                          },
+                        ),
+                        const SizedBox(height: 12),
+                        _buildConfigStep(
+                          title: 'REVENUE RATE',
+                          description: 'Current: $_minsPerPeso mins = ₱1',
+                          isActive: true, // Always configured
+                          icon: Icons.payments_outlined,
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              _buildTinyButton(Icons.remove, () async {
+                                if (_minsPerPeso > 1) {
+                                  final newVal = _minsPerPeso - 1;
+                                  await SafePrefs.setInt(PrefKeys.minsPerPeso, newVal);
+                                  setState(() => _minsPerPeso = newVal);
+                                }
+                              }),
+                              Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 12),
+                                child: Text('$_minsPerPeso', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                              ),
+                              _buildTinyButton(Icons.add, () async {
+                                final newVal = _minsPerPeso + 1;
+                                await SafePrefs.setInt(PrefKeys.minsPerPeso, newVal);
+                                setState(() => _minsPerPeso = newVal);
+                              }),
+                            ],
+                          ),
+                        ),
+
                         const SizedBox(height: 32),
                       ],
                     ),
@@ -276,21 +328,21 @@ class _OnboardingPageState extends State<OnboardingPage>
                 width: 48,
                 height: 48,
                 child: CircularProgressIndicator(
-                  value: _grantedCount / 5,
+                  value: _grantedCount / _totalSteps,
                   backgroundColor: Colors.white10,
                   valueColor: AlwaysStoppedAnimation<Color>(
-                    _allPermissionsGranted
-                        ? const Color(0xFF00D4FF)
-                        : const Color(0xFF9D4EDD),
+                    _grantedCount == _totalSteps
+                        ? const Color(0xFF00FF9D)
+                        : const Color(0xFF00D4FF),
                   ),
                   strokeWidth: 4,
                 ),
               ),
               Text(
-                '$_grantedCount/5',
+                '$_grantedCount/$_totalSteps',
                 style: const TextStyle(
                   color: Colors.white,
-                  fontSize: 12,
+                  fontSize: 10,
                   fontWeight: FontWeight.bold,
                 ),
               ),
@@ -508,6 +560,108 @@ class _OnboardingPageState extends State<OnboardingPage>
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildConfigStep({
+    required String title,
+    required String description,
+    required bool isActive,
+    required IconData icon,
+    ValueChanged<bool>? onToggle,
+    Widget? trailing,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF16213E).withOpacity(0.5),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isActive ? const Color(0xFF00FF9D) : Colors.white10,
+          width: 1,
+        ),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: isActive
+                  ? const Color(0xFF00FF9D).withOpacity(0.1)
+                  : Colors.white.withOpacity(0.05),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(
+              icon,
+              color: isActive ? const Color(0xFF00FF9D) : Colors.white54,
+              size: 22,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        title,
+                        style: TextStyle(
+                          color: isActive ? const Color(0xFF00FF9D) : Colors.white70,
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                    ),
+                    if (isActive && onToggle == null)
+                      const Icon(
+                        Icons.check_circle,
+                        color: Color(0xFF00FF9D),
+                        size: 18,
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  description,
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.5),
+                    fontSize: 11,
+                    height: 1.3,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (onToggle != null)
+            Switch(
+              value: isActive,
+              onChanged: onToggle,
+              activeColor: const Color(0xFF00FF9D),
+              activeTrackColor: const Color(0xFF00FF9D).withOpacity(0.3),
+            ),
+          if (trailing != null) trailing,
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTinyButton(IconData icon, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 28,
+        height: 28,
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.05),
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: Colors.white10),
+        ),
+        child: Icon(icon, color: Colors.white, size: 14),
       ),
     );
   }

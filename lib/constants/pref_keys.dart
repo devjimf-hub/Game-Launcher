@@ -11,6 +11,7 @@ class PrefKeys {
   static const String showAppNames = 'show_app_names';
   static const String cardIconSize = 'card_icon_size';
   static const String launcherTitle = 'launcher_title';
+  static const String wallpaperUrl = 'wallpaper_url';
 
   // Security
   static const String launchWarningText = 'launch_warning_text';
@@ -25,6 +26,10 @@ class PrefKeys {
   static const String appOrder = 'app_order';
   static const String appBackgrounds = 'app_backgrounds';
   static const String appListCache = 'app_list_cache';
+  
+  // Sales & Analytics
+  static const String chargingLogs = 'charging_logs';
+  static const String minsPerPeso = 'mins_per_peso';
 
   // Default Values
   static const int defaultGridColumns = 3;
@@ -34,4 +39,5 @@ class PrefKeys {
   static const String defaultLaunchWarning =
       'SECURITY: Do not leave accounts logged in. Always logout after session.';
   static const int defaultSessionTimeout = 30;
+  static const int defaultMinsPerPeso = 5;
 }
