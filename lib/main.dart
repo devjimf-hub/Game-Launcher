@@ -294,6 +294,7 @@ class _ArcadeLauncherHomeState extends State<ArcadeLauncherHome> {
       SafePrefs.getString(PrefKeys.recentAppsData),
       SafePrefs.getStringList(PrefKeys.appOrder),
       LauncherSettings.load(),
+      _launcherService.getWallpaperPath(),
     ]);
 
     final hidden = results[0] as List<String>;
@@ -305,6 +306,11 @@ class _ArcadeLauncherHomeState extends State<ArcadeLauncherHome> {
     if (recentsData != null) {
       recents = await AppDataProcessor.parseRecentsJsonBackground(recentsData);
     }
+
+    // Map-based lookup for O(N) instead of O(N*M)
+    final Map<String, AppInfo> appMap = {
+      for (var app in apps) app.packageName: app
+    };
 
     final filtered =
         apps.where((app) => !hidden.contains(app.packageName)).toList();
@@ -322,11 +328,9 @@ class _ArcadeLauncherHomeState extends State<ArcadeLauncherHome> {
     List<Map<String, dynamic>> recentAppsWithStats = [];
     for (var recent in recents) {
       final packageName = recent['packageName'];
-      final app = apps.firstWhere(
-        (a) => a.packageName == packageName,
-        orElse: () => AppInfo(name: '', packageName: ''),
-      );
-      if (app.name.isNotEmpty && !hidden.contains(packageName)) {
+      final app = appMap[packageName];
+      
+      if (app != null && app.name.isNotEmpty && !hidden.contains(packageName)) {
         recentAppsWithStats.add({
           'app': app,
           'stats': recent,
@@ -956,9 +960,14 @@ class _BreathingBackgroundState extends State<_BreathingBackground>
       child: AnimatedBuilder(
         animation: _controller,
         builder: (context, child) {
-          return Center(
+          // Calculate scale that breathes in and out
+          final double breatheValue = (1.0 + 0.1 * (1.0 - _controller.value)).clamp(1.0, 1.1);
+          final double opacityValue = (0.2 + 0.2 * _controller.value).clamp(0.2, 0.4);
+
+          return Transform.scale(
+            scale: breatheValue,
             child: Opacity(
-              opacity: 0.4,
+              opacity: opacityValue,
               child: Container(
                 decoration: const BoxDecoration(
                   gradient: RadialGradient(

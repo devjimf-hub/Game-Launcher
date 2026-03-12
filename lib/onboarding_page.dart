@@ -47,25 +47,26 @@ class _OnboardingPageState extends State<OnboardingPage>
   }
 
   Future<void> _checkPermissions() async {
-    final usage = await _launcherService.checkUsageStatsPermission();
-    final overlay = await _launcherService.checkOverlayPermission();
-    final accessibility = await _launcherService.checkAccessibilityPermission();
-    final deviceAdmin = await _launcherService.checkDeviceAdminEnabled();
-    final batteryExempt = await _launcherService.checkBatteryOptimizationExempt();
-    final arcadeMode = await SafePrefs.getBool(PrefKeys.arcadeModeEnabled);
-    final mins = await SafePrefs.getInt(PrefKeys.minsPerPeso, defaultValue: PrefKeys.defaultMinsPerPeso);
+    final results = await Future.wait([
+      _launcherService.checkUsageStatsPermission(),
+      _launcherService.checkOverlayPermission(),
+      _launcherService.checkAccessibilityPermission(),
+      _launcherService.checkDeviceAdminEnabled(),
+      _launcherService.checkBatteryOptimizationExempt(),
+      SafePrefs.getBool(PrefKeys.arcadeModeEnabled),
+      SafePrefs.getInt(PrefKeys.minsPerPeso, defaultValue: PrefKeys.defaultMinsPerPeso),
+    ]);
 
     if (mounted) {
       setState(() {
-        _usageStatsGranted = usage;
-        _overlayGranted = overlay;
-        _accessibilityGranted = accessibility;
-        _deviceAdminGranted = deviceAdmin;
-        _batteryOptimizationExempt = batteryExempt;
-        _arcadeModeEnabled = arcadeMode;
-        _minsPerPeso = mins;
+        _usageStatsGranted = results[0] as bool;
+        _overlayGranted = results[1] as bool;
+        _accessibilityGranted = results[2] as bool;
+        _deviceAdminGranted = results[3] as bool;
+        _batteryOptimizationExempt = results[4] as bool;
+        _arcadeModeEnabled = results[5] as bool;
+        _minsPerPeso = results[6] as int;
       });
-
     }
   }
 

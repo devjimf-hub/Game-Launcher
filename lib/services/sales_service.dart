@@ -89,12 +89,31 @@ class SalesService {
     }
     
     await SafePrefs.setString(PrefKeys.chargingLogs, jsonEncode(decoded));
+    
+    // Invalidate cache
+    _cachedLogs = null;
+    _lastCacheTime = null;
   }
 
-  static Future<List<ChargingSession>> getLogs() async {
+  static List<ChargingSession>? _cachedLogs;
+  static DateTime? _lastCacheTime;
+
+  static Future<List<ChargingSession>> getLogs({bool forceRefresh = false}) async {
+    // Return cache if it's fresh (less than 5 seconds old) and not forced
+    if (!forceRefresh && _cachedLogs != null && _lastCacheTime != null) {
+      final now = DateTime.now();
+      if (now.difference(_lastCacheTime!) < const Duration(seconds: 5)) {
+        return _cachedLogs!;
+      }
+    }
+
     final logsJson = await SafePrefs.getString(PrefKeys.chargingLogs) ?? '[]';
     final List<dynamic> decoded = jsonDecode(logsJson);
-    return decoded.map((j) => ChargingSession.fromJson(j)).toList().reversed.toList();
+    final logs = decoded.map((j) => ChargingSession.fromJson(j)).toList().reversed.toList();
+    
+    _cachedLogs = logs;
+    _lastCacheTime = DateTime.now();
+    return logs;
   }
 
   static Future<double> calculateTotalSales() async {
@@ -102,16 +121,16 @@ class SalesService {
     final minsPerPeso = await SafePrefs.getInt(PrefKeys.minsPerPeso, 
         defaultValue: PrefKeys.defaultMinsPerPeso);
     
-    int totalMinutes = 0;
-    for (var log in logs) {
-      totalMinutes += log.durationInMinutes;
-    }
+    // Use fold for a slightly more functional and concise sum
+    int totalMinutes = logs.fold(0, (sum, log) => sum + log.durationInMinutes);
     
     if (minsPerPeso == 0) return 0.0;
     return totalMinutes / minsPerPeso;
   }
   
   static Future<void> clearLogs() async {
+    _cachedLogs = null;
+    _lastCacheTime = null;
     await SafePrefs.setString(PrefKeys.chargingLogs, '[]');
   }
 }

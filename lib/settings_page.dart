@@ -78,18 +78,22 @@ class _SettingsPageState extends State<SettingsPage>
   }
 
   void _loadSettings() async {
-    final gridColumns = await SafePrefs.getInt(PrefKeys.gridColumns,
-        defaultValue: PrefKeys.defaultGridColumns);
-    final arcadeMode = await SafePrefs.getBool(PrefKeys.arcadeModeEnabled);
-    final showNames = await SafePrefs.getBool(PrefKeys.showAppNames,
-        defaultValue: PrefKeys.defaultShowAppNames);
-    final iconSize = await SafePrefs.getDouble(PrefKeys.cardIconSize,
-        defaultValue: PrefKeys.defaultCardIconSize);
-    final warningText = await SafePrefs.getString(PrefKeys.launchWarningText);
-    final overlayImagePath = await _launcherService.getOverlayImagePath();
+    final results = await Future.wait([
+      SafePrefs.getInt(PrefKeys.gridColumns, defaultValue: PrefKeys.defaultGridColumns),
+      SafePrefs.getBool(PrefKeys.arcadeModeEnabled),
+      SafePrefs.getBool(PrefKeys.showAppNames, defaultValue: PrefKeys.defaultShowAppNames),
+      SafePrefs.getDouble(PrefKeys.cardIconSize, defaultValue: PrefKeys.defaultCardIconSize),
+      SafePrefs.getString(PrefKeys.launchWarningText),
+      _launcherService.getOverlayImagePath(),
+      _loadPermissions(),
+    ]);
 
-    // Load permissions
-    await _loadPermissions();
+    final gridColumns = results[0] as int;
+    final arcadeMode = results[1] as bool;
+    final showNames = results[2] as bool;
+    final iconSize = results[3] as double;
+    final warningText = results[4] as String?;
+    final overlayImagePath = results[5] as String?;
 
     if (mounted) {
       setState(() {

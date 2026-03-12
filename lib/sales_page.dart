@@ -30,18 +30,33 @@ class _SalesPageState extends State<SalesPage> {
   }
 
   Future<void> _loadData() async {
-    final recentData = await SafePrefs.getString(PrefKeys.recentAppsData);
-    final apps = await _launcherService.getApps();
-    final mins = await SafePrefs.getInt(PrefKeys.minsPerPeso, defaultValue: PrefKeys.defaultMinsPerPeso);
-    final logs = await SalesService.getLogs();
-    final total = await SalesService.calculateTotalSales();
+    final results = await Future.wait([
+      SafePrefs.getString(PrefKeys.recentAppsData),
+      _launcherService.getApps(),
+      SafePrefs.getInt(PrefKeys.minsPerPeso, defaultValue: PrefKeys.defaultMinsPerPeso),
+      SalesService.getLogs(),
+      SalesService.calculateTotalSales(),
+    ]);
+
+    final recentData = results[0] as String?;
+    final apps = results[1] as List<AppInfo>;
+    final mins = results[2] as int;
+    final logs = results[3] as List<ChargingSession>;
+    final total = results[4] as double;
 
     List<Map<String, dynamic>> usage = [];
-    if (recentData != null) {
+    if (recentData != null && apps.isNotEmpty) {
       final recents = await AppDataProcessor.parseRecentsJsonBackground(recentData);
+      
+      // Map-based lookup for O(N) instead of O(N*M)
+      final Map<String, AppInfo> appMap = {
+        for (var app in apps) app.packageName: app
+      };
+
       for (var r in recents) {
-        final app = apps.firstWhere((a) => a.packageName == r['packageName'], orElse: () => AppInfo(name: 'Unknown', packageName: ''));
-        if (app.name != 'Unknown') {
+        final pkg = r['packageName'];
+        final app = appMap[pkg];
+        if (app != null) {
           usage.add({
             'app': app,
             'playtime': r['playtime'] ?? 0,
